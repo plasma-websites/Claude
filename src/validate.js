@@ -33,3 +33,9 @@ export function validateRide(b) {
   if (paymentToken.length > 256) throw bad('payment', 'Invalid payment token.');
   return { pickup, dropoff, paymentToken };
 }
+
+export function validateCode(b) {
+  const code = clean(b.code).replace(/\s/g, '');
+  if (!/^\d{4,8}$/.test(code)) throw bad('verify', 'Please enter the numeric code sent to your phone.');
+  return code;
+}

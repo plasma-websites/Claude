@@ -19,6 +19,8 @@ export function loadConfig(env = process.env) {
         promo: env.UBER_PATH_PROMO || '/partner/v1/accounts/{accountId}/promos',
         ride: env.UBER_PATH_RIDE || '/partner/v1/accounts/{accountId}/rides',
         rideStatus: env.UBER_PATH_RIDE_STATUS || '/partner/v1/rides/{rideId}',
+        verify: env.UBER_PATH_VERIFY || '/partner/v1/accounts/{accountId}/verify',
+        resend: env.UBER_PATH_RESEND || '/partner/v1/accounts/{accountId}/verify/resend',
         payment: env.UBER_PATH_PAYMENT || '/partner/v1/accounts/{accountId}/payment-methods',
         estimate: env.UBER_PATH_ESTIMATE || '/partner/v1/accounts/{accountId}/estimates',
         cancel: env.UBER_PATH_CANCEL || '/partner/v1/rides/{rideId}/cancel',

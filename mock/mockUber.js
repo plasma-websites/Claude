@@ -21,9 +21,17 @@ export function createMock() {
     if (p === '/partner/v1/accounts' && req.method === 'POST') {
       if (!body.name || !body.phone) return send(res, 400, { message: 'name and phone required' });
       if (body.phone.endsWith('0000')) return send(res, 409, { code: 'exists', message: 'An account already exists for this phone number.' });
-      const id = 'acct_' + randomUUID(); accounts.set(id, body); return send(res, 201, { accountId: id });
+      const id = 'acct_' + randomUUID(); accounts.set(id, { ...body, verified: false }); return send(res, 201, { accountId: id });
     }
     let m;
+    if ((m = p.match(/^\/partner\/v1\/accounts\/([^/]+)\/verify$/)) && req.method === 'POST') {
+      const a = accounts.get(m[1]); if (!a) return send(res, 404, { message: 'no such account' });
+      if (body.code !== '123456') return send(res, 422, { code: 'bad_code', message: 'That code was not correct.' });
+      a.verified = true; return send(res, 200, { verified: true });
+    }
+    if ((m = p.match(/^\/partner\/v1\/accounts\/([^/]+)\/verify\/resend$/)) && req.method === 'POST') {
+      return accounts.has(m[1]) ? send(res, 200, { sent: true }) : send(res, 404, { message: 'no such account' });
+    }
     if ((m = p.match(/^\/partner\/v1\/accounts\/([^/]+)\/promos$/)) && req.method === 'POST') {
       if (!accounts.has(m[1])) return send(res, 404, { message: 'no such account' });
       if (body.code === 'BADCODE') return send(res, 422, { code: 'promo_invalid', message: `Promo ${body.code} is not valid.` });

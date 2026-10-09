@@ -47,6 +47,7 @@ Still worth a manual pass with VoiceOver/NVDA and users with disabilities before
 |---|------|----------|---------------|----------|
 | 1 | Authentication (partner key/OAuth) | yes | `#call` header | `UBER_PARTNER_KEY` |
 | 2 | Create account (name, phone → accountId) | yes | `createAccount` | `UBER_PATH_ACCOUNT` |
+| 2b | Verify phone (submit SMS code) + resend code | yes | `verifyPhone`, `resendCode` | `UBER_PATH_VERIFY`, `UBER_PATH_RESEND` |
 | 3 | Apply promo code | if you use promos | `applyPromo` | `UBER_PATH_PROMO` |
 | 4 | Add payment method (gateway token → paymentMethodId) | yes | `addPaymentMethod` | `UBER_PATH_PAYMENT` |
 | 5 | Fare/ETA estimate | recommended | `estimate` | `UBER_PATH_ESTIMATE` |
@@ -54,5 +55,4 @@ Still worth a manual pass with VoiceOver/NVDA and users with disabilities before
 | 7 | Ride status | yes (live updates) | `rideStatus` | `UBER_PATH_RIDE_STATUS` |
 | 8 | Cancel ride | recommended | `cancelRide` | `UBER_PATH_CANCEL` |
 
-Not built, add only if Uber's flow needs them: phone/OTP verification after account creation,
-address geocoding/place search, delete account (for privacy requests), webhooks for status pushes.
+Not built, add only if Uber's flow needs them: address geocoding/place search, delete account (for privacy requests), webhooks for status pushes.

@@ -7,7 +7,7 @@ import { loadConfig } from './config.js';
 import { UberClient } from './uberClient.js';
 import { SessionStore, RateLimiter } from './store.js';
 import { StepError, toPublic } from './errors.js';
-import { validateRegistration, validateRide } from './validate.js';
+import { validateRegistration, validateRide, validateCode } from './validate.js';
 
 const PUBLIC_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css' };
@@ -42,10 +42,11 @@ export function createApp(config = loadConfig(), { fetchImpl } = {}) {
     catch { throw new StepError('request', 'Malformed request.', { status: 400, code: 'bad_json' }); }
   }
 
-  const sessionFrom = (req) => {
+  const sessionFrom = (req, needVerified = false) => {
     const id = (req.headers.authorization || '').replace(/^Bearer /, '');
     const s = id && sessions.get(id);
     if (!s) throw new StepError('session', 'Your session expired. Please start again.', { status: 401, code: 'no_session' });
+    if (needVerified && !s.verified) throw new StepError('verify', 'Please verify your phone number first.', { status: 403, code: 'unverified' });
     return { id, s };
   };
 
@@ -64,12 +65,28 @@ export function createApp(config = loadConfig(), { fetchImpl } = {}) {
       }
       const { accountId } = await uber.createAccount(input);
       // Name/phone are NOT kept after this call; only the Uber account id is retained.
-      const session = sessions.create({ accountId, promos: [] });
+      const session = sessions.create({ accountId, verified: false, attempts: 0, resends: 0, promos: [] });
       return [201, { session }];
     },
 
-    'POST /api/promos': async (req) => {
+    'POST /api/verify': async (req) => {
       const { s } = sessionFrom(req);
+      const code = validateCode(await readBody(req));
+      if (++s.attempts > 5) throw new StepError('verify', 'Too many incorrect codes. Please start again.', { status: 429, code: 'rate_limited' });
+      await uber.verifyPhone(s.accountId, code);
+      s.verified = true;
+      return [200, { verified: true }];
+    },
+
+    'POST /api/verify/resend': async (req) => {
+      const { s } = sessionFrom(req);
+      if (++s.resends > 3) throw new StepError('verify', 'Too many codes requested. Please try again later.', { status: 429, code: 'rate_limited' });
+      await uber.resendCode(s.accountId);
+      return [200, { sent: true }];
+    },
+
+    'POST /api/promos': async (req) => {
+      const { s } = sessionFrom(req, true);
       const body = await readBody(req);
       const extra = Array.isArray(body.codes) ? body.codes : [];
       const codes = [...new Set([...config.promoCodes, ...extra.map((c) => String(c).trim().toUpperCase())])]
@@ -87,7 +104,7 @@ export function createApp(config = loadConfig(), { fetchImpl } = {}) {
     },
 
     'POST /api/estimate': async (req) => {
-      const { s } = sessionFrom(req);
+      const { s } = sessionFrom(req, true);
       const { pickup, dropoff } = validateRide({ ...(await readBody(req)), paymentToken: 'n/a' });
       return [200, { estimate: await uber.estimate(s.accountId, { pickup, dropoff }) }];
     },
@@ -99,7 +116,7 @@ export function createApp(config = loadConfig(), { fetchImpl } = {}) {
     },
 
     'POST /api/ride': async (req) => {
-      const { id, s } = sessionFrom(req);
+      const { id, s } = sessionFrom(req, true);
       const input = validateRide(await readBody(req));
       const { paymentMethodId } = await uber.addPaymentMethod(s.accountId, input.paymentToken);
       const ride = await uber.requestRide(s.accountId, { pickup: input.pickup, dropoff: input.dropoff, paymentMethodId });

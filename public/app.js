@@ -54,7 +54,7 @@ async function busy(btn, fn) {
   try { await fn(); } catch (e) {
     if (e.step === 'session') { session = null; show(1); }
     showError(e.message, { retryable: e.retryable });
-  } finally { btn.disabled = false; btn.textContent = label; $('notice').textContent = ''; }
+  } finally { btn.disabled = false; btn.textContent = label; if ($('notice').textContent === 'Working, please wait.') $('notice').textContent = ''; }
 }
 
 // Saved addresses live only in this browser.
@@ -68,6 +68,16 @@ $('f1').addEventListener('submit', (ev) => {
   busy(ev.submitter, async () => {
     ({ session } = await api('/api/register', { method: 'POST', body: { name: $('name').value, phone: $('phone').value, consent: true } }));
     $('name').value = ''; $('phone').value = ''; // don't keep personal details in the page
+    show('V');
+  });
+});
+
+$('fV').addEventListener('submit', (ev) => {
+  ev.preventDefault(); clearErrors();
+  if (!requireFields([[$('code'), 'Please enter the code we sent you.']])) return;
+  busy(ev.submitter, async () => {
+    await api('/api/verify', { method: 'POST', body: { code: $('code').value } });
+    $('code').value = '';
     const { results } = await api('/api/promos', { method: 'POST', body: {} });
     const ok = results.filter((r) => r.applied).length, failed = results.filter((r) => !r.applied);
     $('promo-result').textContent = results.length
@@ -76,6 +86,12 @@ $('f1').addEventListener('submit', (ev) => {
     renderSaved(); show(2);
   });
 });
+
+$('resend').addEventListener('click', (ev) => busy(ev.currentTarget, async () => {
+  await api('/api/verify/resend', { method: 'POST', body: {} });
+  $('code').focus();
+  $('notice').textContent = 'A new code has been sent.';
+}));
 
 $('f2').addEventListener('submit', (ev) => {
   ev.preventDefault(); clearErrors();

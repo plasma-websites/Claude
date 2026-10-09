@@ -49,6 +49,17 @@ export class UberClient {
     return { accountId: d.accountId };
   }
 
+  async verifyPhone(accountId, code) {
+    const d = await this.#call('verify', 'POST', this.cfg.paths.verify, { accountId }, { code });
+    if (d.verified === false) throw new StepError('verify', 'That code was not correct.', { retryable: true, status: 422, code: 'bad_code' });
+    return { verified: true };
+  }
+
+  async resendCode(accountId) {
+    await this.#call('verify', 'POST', this.cfg.paths.resend, { accountId }, {});
+    return { sent: true };
+  }
+
   async applyPromo(accountId, code) {
     const d = await this.#call('promo', 'POST', this.cfg.paths.promo, { accountId }, { code });
     return { code, applied: d.applied !== false, description: d.description || '' };

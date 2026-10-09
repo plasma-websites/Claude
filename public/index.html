@@ -8,11 +8,11 @@
 </head>
 <body>
   <a class="skip" href="#main">Skip to main content</a>
-  <header><h1>Book a ride</h1><p class="sub">We'll set everything up for you in four short steps.</p></header>
+  <header><h1>Book a ride</h1><p class="sub">We'll set everything up for you in five short steps.</p></header>
 
   <main id="main" tabindex="-1">
     <ol class="progress" aria-label="Progress">
-      <li data-step="1">Your details</li><li data-step="2">Where to</li>
+      <li data-step="1">Your details</li><li data-step="V">Verify phone</li><li data-step="2">Where to</li>
       <li data-step="3">Payment</li><li data-step="4">Your ride</li>
     </ol>
 
@@ -20,7 +20,7 @@
     <div id="notice" class="notice" role="status" aria-live="polite"></div>
 
     <section id="step1" class="step" aria-labelledby="h1">
-      <h2 id="h1" tabindex="-1">Step 1 of 4: Your details</h2>
+      <h2 id="h1" tabindex="-1">Step 1 of 5: Your details</h2>
       <form id="f1" novalidate>
         <label for="name">Full name</label>
         <input id="name" autocomplete="name" required>
@@ -35,8 +35,19 @@
       </form>
     </section>
 
+    <section id="stepV" class="step" aria-labelledby="hV" hidden>
+      <h2 id="hV" tabindex="-1">Step 2 of 5: Verify your phone</h2>
+      <p class="hint">We've sent a code by text message. Enter it below.</p>
+      <form id="fV" novalidate>
+        <label for="code">Verification code</label>
+        <input id="code" inputmode="numeric" autocomplete="one-time-code" required>
+        <button type="submit">Verify</button>
+        <button id="resend" type="button">Send a new code</button>
+      </form>
+    </section>
+
     <section id="step2" class="step" aria-labelledby="h2" hidden>
-      <h2 id="h2" tabindex="-1">Step 2 of 4: Where to?</h2>
+      <h2 id="h2" tabindex="-1">Step 3 of 5: Where to?</h2>
       <p id="promo-result" class="hint"></p>
       <form id="f2" novalidate>
         <label for="pickup">Pickup address</label>
@@ -53,7 +64,7 @@
     </section>
 
     <section id="step3" class="step" aria-labelledby="h3" hidden>
-      <h2 id="h3" tabindex="-1">Step 3 of 4: Payment</h2>
+      <h2 id="h3" tabindex="-1">Step 4 of 5: Payment</h2>
       <p class="hint">Your card details go straight to our secure payment provider. We never see or store them.</p>
       <form id="f3" novalidate autocomplete="on">
         <label for="cc-number">Card number</label>
@@ -67,7 +78,7 @@
     </section>
 
     <section id="step4" class="step" aria-labelledby="h4" hidden>
-      <h2 id="h4" tabindex="-1">Step 4 of 4: Your ride</h2>
+      <h2 id="h4" tabindex="-1">Step 5 of 5: Your ride</h2>
       <p id="ride-status" class="big" aria-live="polite"></p>
       <p id="ride-detail"></p>
       <button id="cancel" type="button">Cancel this ride</button>
