@@ -1,5 +1,5 @@
 const $ = (id) => document.getElementById(id);
-let cfg = {}, session = null, pollTimer = null;
+let cfg = {}, session = null, pollTimer = null, currentRide = null;
 
 const STATUS_TEXT = {
   requested: 'Looking for a driver…',
@@ -113,6 +113,7 @@ $('f3').addEventListener('submit', (ev) => {
 });
 
 function renderRide(r) {
+  currentRide = r.rideId; $('cancel').hidden = ['completed', 'cancelled'].includes(r.status);
   $('ride-status').textContent = STATUS_TEXT[r.status] || r.status;
   $('ride-detail').textContent = [
     r.etaMinutes != null ? `Estimated arrival: ${r.etaMinutes} minutes.` : '',
@@ -131,6 +132,15 @@ function poll(id) {
     } catch { /* keep last known status; try again next tick */ }
   }, 5000);
 }
+
+$('cancel').addEventListener('click', (ev) => {
+  if (!confirm('Cancel this ride?')) return;
+  busy(ev.currentTarget, async () => {
+    const { ride } = await api('/api/ride/cancel', { method: 'POST', body: { rideId: currentRide } });
+    clearInterval(pollTimer); $('ride-status').textContent = STATUS_TEXT.cancelled; $('ride-detail').textContent = `Booking reference: ${ride.rideId}.`;
+    $('cancel').hidden = true;
+  });
+});
 
 $('again').addEventListener('click', () => { clearInterval(pollTimer); show(1); });
 

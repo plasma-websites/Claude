@@ -86,10 +86,23 @@ export function createApp(config = loadConfig(), { fetchImpl } = {}) {
       return [200, { results }];
     },
 
+    'POST /api/estimate': async (req) => {
+      const { s } = sessionFrom(req);
+      const { pickup, dropoff } = validateRide({ ...(await readBody(req)), paymentToken: 'n/a' });
+      return [200, { estimate: await uber.estimate(s.accountId, { pickup, dropoff }) }];
+    },
+
+    'POST /api/ride/cancel': async (req) => {
+      const { rideId } = await readBody(req);
+      if (!/^[\w-]{3,64}$/.test(String(rideId || ''))) throw new StepError('cancel', 'Invalid ride id.', { status: 400, code: 'invalid_input' });
+      return [200, { ride: await uber.cancelRide(rideId) }];
+    },
+
     'POST /api/ride': async (req) => {
       const { id, s } = sessionFrom(req);
       const input = validateRide(await readBody(req));
-      const ride = await uber.requestRide(s.accountId, input);
+      const { paymentMethodId } = await uber.addPaymentMethod(s.accountId, input.paymentToken);
+      const ride = await uber.requestRide(s.accountId, { pickup: input.pickup, dropoff: input.dropoff, paymentMethodId });
       sessions.destroy(id); // minimise retention: nothing needed after booking
       return [201, { ride }];
     },

@@ -54,9 +54,25 @@ export class UberClient {
     return { code, applied: d.applied !== false, description: d.description || '' };
   }
 
-  async requestRide(accountId, { pickup, dropoff, paymentToken }) {
+  async addPaymentMethod(accountId, paymentToken) {
+    const d = await this.#call('payment', 'POST', this.cfg.paths.payment, { accountId }, { token: paymentToken });
+    if (!d.paymentMethodId) throw new StepError('payment', 'Uber did not accept the payment method.', { retryable: true });
+    return { paymentMethodId: d.paymentMethodId };
+  }
+
+  async estimate(accountId, { pickup, dropoff }) {
+    const d = await this.#call('estimate', 'POST', this.cfg.paths.estimate, { accountId }, { pickup, dropoff });
+    return { fare: d.fare ?? null, currency: d.currency || null, etaMinutes: d.etaMinutes ?? null };
+  }
+
+  async cancelRide(rideId) {
+    const d = await this.#call('cancel', 'POST', this.cfg.paths.cancel, { rideId }, {});
+    return { rideId, status: d.status || 'cancelled' };
+  }
+
+  async requestRide(accountId, { pickup, dropoff, paymentMethodId }) {
     const d = await this.#call('ride', 'POST', this.cfg.paths.ride, { accountId }, {
-      pickup, dropoff, paymentToken,
+      pickup, dropoff, paymentMethodId,
     });
     if (!d.rideId) throw new StepError('ride', 'Uber did not confirm the ride.', { retryable: true });
     return { rideId: d.rideId, status: d.status || 'requested', etaMinutes: d.etaMinutes ?? null, driver: d.driver || null };

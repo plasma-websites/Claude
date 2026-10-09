@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 export function createMock() {
-  const accounts = new Map(); const rides = new Map(); const tokens = new Set();
+  const methods = new Set(); const accounts = new Map(); const rides = new Map(); const tokens = new Set();
   const send = (res, s, b) => { res.writeHead(s, { 'content-type': 'application/json', 'access-control-allow-origin': '*', 'access-control-allow-headers': '*' }); res.end(JSON.stringify(b)); };
   return http.createServer(async (req, res) => {
     if (req.method === 'OPTIONS') return send(res, 204, {});
@@ -29,14 +29,28 @@ export function createMock() {
       if (body.code === 'BADCODE') return send(res, 422, { code: 'promo_invalid', message: `Promo ${body.code} is not valid.` });
       return send(res, 200, { applied: true, description: `${body.code} applied` });
     }
+    if ((m = p.match(/^\/partner\/v1\/accounts\/([^/]+)\/payment-methods$/)) && req.method === 'POST') {
+      if (!accounts.has(m[1])) return send(res, 404, { message: 'no such account' });
+      if (!tokens.has(body.token)) return send(res, 402, { code: 'payment_rejected', message: 'Payment method was rejected.' });
+      const pm = 'pm_' + randomUUID().slice(0, 8); methods.add(pm); return send(res, 201, { paymentMethodId: pm });
+    }
+    if ((m = p.match(/^\/partner\/v1\/accounts\/([^/]+)\/estimates$/)) && req.method === 'POST') {
+      if (!accounts.has(m[1])) return send(res, 404, { message: 'no such account' });
+      return send(res, 200, { fare: 14.5, currency: 'USD', etaMinutes: 6 });
+    }
+    if ((m = p.match(/^\/partner\/v1\/rides\/([^/]+)\/cancel$/)) && req.method === 'POST') {
+      const r = rides.get(m[1]); if (!r) return send(res, 404, { message: 'no such ride' });
+      r.cancelled = true; return send(res, 200, { status: 'cancelled' });
+    }
     if ((m = p.match(/^\/partner\/v1\/accounts\/([^/]+)\/rides$/)) && req.method === 'POST') {
       if (!accounts.has(m[1])) return send(res, 404, { message: 'no such account' });
-      if (!tokens.has(body.paymentToken)) return send(res, 402, { code: 'payment_rejected', message: 'Payment method was rejected.' });
+      if (!methods.has(body.paymentMethodId)) return send(res, 402, { code: 'payment_rejected', message: 'Payment method was rejected.' });
       const id = 'ride_' + randomUUID().slice(0, 8); rides.set(id, { t: Date.now() });
       return send(res, 201, { rideId: id, status: 'requested', etaMinutes: 6 });
     }
     if ((m = p.match(/^\/partner\/v1\/rides\/([^/]+)$/)) && req.method === 'GET') {
       const r = rides.get(m[1]); if (!r) return send(res, 404, { message: 'no such ride' });
+      if (r.cancelled) return send(res, 200, { status: 'cancelled' });
       const age = Date.now() - r.t;
       return send(res, 200, age < 8000 ? { status: 'requested', etaMinutes: 6 } : { status: 'driver_assigned', etaMinutes: 4, driver: { name: 'Sam', vehicle: 'Grey Toyota Prius (wheelchair accessible)' } });
     }

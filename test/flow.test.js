@@ -37,6 +37,18 @@ test('zero to booked ride; invalid promo does not block; session destroyed after
   assert.equal(st.ride.status, 'requested');
 });
 
+test('estimate and cancel', async () => {
+  const reg = await post('/api/register', { name: 'Eve Adams', phone: '+14155550106', consent: true });
+  const est = await post('/api/estimate', { pickup: '1 Main St', dropoff: '2 Oak Ave' }, reg.body.session);
+  assert.equal(est.body.estimate.currency, 'USD');
+  const { token: t } = await token();
+  const ride = await post('/api/ride', { pickup: '1 Main St', dropoff: '2 Oak Ave', paymentToken: t }, reg.body.session);
+  const c = await post('/api/ride/cancel', { rideId: ride.body.ride.rideId });
+  assert.equal(c.body.ride.status, 'cancelled');
+  const st = await (await fetch(`${base}/api/ride?id=${ride.body.ride.rideId}`)).json();
+  assert.equal(st.ride.status, 'cancelled');
+});
+
 test('requires consent and valid phone', async () => {
   assert.equal((await post('/api/register', { name: 'Ada', phone: '+14155550102', consent: false })).status, 400);
   assert.equal((await post('/api/register', { name: 'Ada', phone: '123', consent: true })).status, 400);
@@ -53,7 +65,7 @@ test('rejects raw card numbers and unknown tokens at the ride step', async () =>
   const raw = await post('/api/ride', { pickup: 'a b c', dropoff: 'd e f', paymentToken: '4242 4242 4242 4242' }, reg.body.session);
   assert.equal(raw.status, 400); assert.equal(raw.body.error.step, 'payment');
   const bad = await post('/api/ride', { pickup: 'a b c', dropoff: 'd e f', paymentToken: 'tok_nope' }, reg.body.session);
-  assert.equal(bad.status, 422); assert.equal(bad.body.error.step, 'ride');
+  assert.equal(bad.status, 422); assert.equal(bad.body.error.step, 'payment');
 });
 
 test('same phone cannot register twice in a day', async () => {
