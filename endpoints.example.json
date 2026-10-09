@@ -1,0 +1,24 @@
+{
+  "createAccount": {
+    "method": "POST",
+    "url": "https://REPLACE_WITH_YOUR_DOCUMENTED_URL",
+    "headers": { "Authorization": "Bearer {{apiKey}}" },
+    "body": { "name": "{{name}}", "phone": "{{phone}}" }
+  },
+  "applyPromo": {
+    "method": "POST",
+    "url": "https://REPLACE_WITH_YOUR_DOCUMENTED_URL",
+    "headers": { "Authorization": "Bearer {{accountToken}}" },
+    "body": { "code": "{{promoCode}}" }
+  },
+  "bookRide": {
+    "method": "POST",
+    "url": "https://REPLACE_WITH_YOUR_DOCUMENTED_URL",
+    "headers": { "Authorization": "Bearer {{accountToken}}" },
+    "body": {
+      "pickup": "{{pickup}}",
+      "dropoff": "{{dropoff}}",
+      "payment_token": "{{paymentToken}}"
+    }
+  }
+}

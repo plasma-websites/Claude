@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Accessible Rides</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to main content</a>
+  <header><h1>Book a ride</h1><p id="progress" aria-live="polite">Step 1 of 3</p></header>
+  <main id="main" tabindex="-1">
+    <div id="status" role="alert" aria-live="assertive" class="status" hidden></div>
+
+    <form id="step1" novalidate>
+      <h2>About you</h2>
+      <label for="name">Full name</label>
+      <input id="name" autocomplete="name" required>
+      <label for="phone">Mobile phone number</label>
+      <input id="phone" type="tel" autocomplete="tel" inputmode="tel" required>
+      <button type="submit">Continue</button>
+    </form>
+
+    <form id="step2" novalidate hidden>
+      <h2>Where to?</h2>
+      <label for="pickup">Pickup address</label>
+      <input id="pickup" autocomplete="street-address" required>
+      <label for="dropoff">Drop-off address</label>
+      <input id="dropoff" required>
+      <button type="submit">Continue</button>
+    </form>
+
+    <form id="step3" novalidate hidden>
+      <h2>Payment</h2>
+      <p>Card details go straight to our payment provider. We never see or store them.</p>
+      <div id="card-element" aria-label="Card details"></div>
+      <p id="mock-note" hidden>Demo mode: no card needed.</p>
+      <button type="submit">Book my ride</button>
+    </form>
+
+    <section id="done" hidden tabindex="-1">
+      <h2>Your ride is requested</h2>
+      <p id="done-text"></p>
+      <button type="button" id="restart">Book another ride</button>
+    </section>
+  </main>
+  <script src="app.js" type="module"></script>
+</body>
+</html>

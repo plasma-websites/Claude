@@ -1,0 +1,11 @@
+:root { --fg:#111; --bg:#fff; --accent:#0b57d0; --err:#b3261e; font-size:125%; }
+@media (prefers-color-scheme: dark) { :root { --fg:#f2f2f2; --bg:#121212; --accent:#8ab4f8; --err:#f2b8b5; } }
+body { font-family: system-ui, sans-serif; color:var(--fg); background:var(--bg); margin:0 auto; max-width:36rem; padding:1rem; line-height:1.5; }
+label { display:block; font-weight:600; margin-top:1rem; }
+input, button, #card-element { font:inherit; width:100%; box-sizing:border-box; padding:.75rem; margin-top:.25rem; border:2px solid var(--fg); border-radius:.5rem; background:var(--bg); color:var(--fg); }
+button { background:var(--accent); color:var(--bg); border-color:var(--accent); font-weight:700; margin-top:1.5rem; min-height:3rem; cursor:pointer; }
+:focus-visible { outline:4px solid var(--accent); outline-offset:2px; }
+.status { border:2px solid var(--err); color:var(--err); padding:.75rem; border-radius:.5rem; margin-bottom:1rem; font-weight:600; }
+.status.ok { border-color:var(--accent); color:var(--fg); }
+.skip { position:absolute; left:-999px; } .skip:focus { left:0; background:var(--bg); padding:.5rem; }
+@media (prefers-reduced-motion: reduce) { * { transition:none !important; animation:none !important; } }
