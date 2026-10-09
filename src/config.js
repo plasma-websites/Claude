@@ -10,6 +10,9 @@ export function loadConfig(env = process.env) {
   return {
     port: num(env.PORT, 3000),
     sessionTtlMs: num(env.SESSION_TTL_MS, 30 * 60 * 1000),
+    // Number of reverse proxies in front of us (0 = connect directly). Only that many
+    // X-Forwarded-For hops are trusted, so riders can't spoof their IP.
+    trustProxyHops: num(env.TRUST_PROXY_HOPS, 0),
     maxRegistrationsPerHour: num(env.MAX_REGISTRATIONS_PER_HOUR, 3),
     uber: {
       baseUrl,
@@ -25,6 +28,8 @@ export function loadConfig(env = process.env) {
         estimate: env.UBER_PATH_ESTIMATE || '/partner/v1/accounts/{accountId}/estimates',
         cancel: env.UBER_PATH_CANCEL || '/partner/v1/rides/{rideId}/cancel',
       },
+      // Header carrying the rider's real IP to Uber; set per Uber's docs, or empty to disable.
+      clientIpHeader: env.UBER_CLIENT_IP_HEADER ?? 'X-Forwarded-For',
       timeoutMs: num(env.UBER_TIMEOUT_MS, 10000),
     },
     promoCodes: (env.PROMO_CODES || '').split(',').map((s) => s.trim()).filter(Boolean).slice(0, 3),

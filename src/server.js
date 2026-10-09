@@ -1,4 +1,5 @@
 import http from 'node:http';
+import { isIP } from 'node:net';
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
@@ -25,6 +26,19 @@ export function createApp(config = loadConfig(), { fetchImpl } = {}) {
   const ipLimit = new RateLimiter(config.maxRegistrationsPerHour, 3600_000);
   const phoneLimit = new RateLimiter(1, 24 * 3600_000); // one account per phone per day
   const payHost = config.payment.tokenizeUrl ? new URL(config.payment.tokenizeUrl).origin : '';
+
+  // Rider's real IP: the socket address, or the Nth-from-last X-Forwarded-For entry
+  // when we sit behind that many trusted proxies (earlier entries are client-supplied).
+  const clientIp = (req) => {
+    const hops = config.trustProxyHops;
+    let ip = req.socket.remoteAddress || '';
+    if (hops > 0) {
+      const parts = String(req.headers['x-forwarded-for'] || '').split(',').map((x) => x.trim()).filter(Boolean);
+      if (parts.length) ip = parts[Math.max(0, parts.length - hops)];
+    }
+    ip = ip.replace(/^::ffff:/, '');
+    return isIP(ip) ? ip : '';
+  };
 
   const json = (res, status, body) => {
     res.writeHead(status, { ...SECURITY_HEADERS, 'content-type': 'application/json' });
@@ -58,14 +72,14 @@ export function createApp(config = loadConfig(), { fetchImpl } = {}) {
 
     'POST /api/register': async (req) => {
       const input = validateRegistration(await readBody(req));
-      const ip = req.socket.remoteAddress || 'unknown';
+      const ip = clientIp(req) || 'unknown';
       const phoneKey = createHash('sha256').update(input.phone).digest('hex');
       if (!ipLimit.allow(ip) || !phoneLimit.allow(phoneKey)) {
         throw new StepError('account', 'Too many sign-up attempts. Please try again later or contact support.', { status: 429, code: 'rate_limited' });
       }
-      const { accountId } = await uber.createAccount(input);
+      const { accountId } = await uber.createAccount(input, { clientIp: ip === 'unknown' ? '' : ip });
       // Name/phone are NOT kept after this call; only the Uber account id is retained.
-      const session = sessions.create({ accountId, verified: false, attempts: 0, resends: 0, promos: [] });
+      const session = sessions.create({ accountId, ip: ip === 'unknown' ? '' : ip, verified: false, attempts: 0, resends: 0, promos: [] });
       return [201, { session }];
     },
 
@@ -73,7 +87,7 @@ export function createApp(config = loadConfig(), { fetchImpl } = {}) {
       const { s } = sessionFrom(req);
       const code = validateCode(await readBody(req));
       if (++s.attempts > 5) throw new StepError('verify', 'Too many incorrect codes. Please start again.', { status: 429, code: 'rate_limited' });
-      await uber.verifyPhone(s.accountId, code);
+      await uber.verifyPhone(s.accountId, code, { clientIp: s.ip });
       s.verified = true;
       return [200, { verified: true }];
     },
@@ -81,7 +95,7 @@ export function createApp(config = loadConfig(), { fetchImpl } = {}) {
     'POST /api/verify/resend': async (req) => {
       const { s } = sessionFrom(req);
       if (++s.resends > 3) throw new StepError('verify', 'Too many codes requested. Please try again later.', { status: 429, code: 'rate_limited' });
-      await uber.resendCode(s.accountId);
+      await uber.resendCode(s.accountId, { clientIp: s.ip });
       return [200, { sent: true }];
     },
 
@@ -93,7 +107,7 @@ export function createApp(config = loadConfig(), { fetchImpl } = {}) {
         .filter((c) => /^[A-Z0-9_-]{3,32}$/i.test(c)).slice(0, 3);
       const results = [];
       for (const code of codes) {
-        try { results.push(await uber.applyPromo(s.accountId, code)); }
+        try { results.push(await uber.applyPromo(s.accountId, code, { clientIp: s.ip })); }
         catch (e) {
           // An invalid promo must not strand the rider: report it and carry on.
           results.push({ code, applied: false, message: e.message });
@@ -106,20 +120,20 @@ export function createApp(config = loadConfig(), { fetchImpl } = {}) {
     'POST /api/estimate': async (req) => {
       const { s } = sessionFrom(req, true);
       const { pickup, dropoff } = validateRide({ ...(await readBody(req)), paymentToken: 'n/a' });
-      return [200, { estimate: await uber.estimate(s.accountId, { pickup, dropoff }) }];
+      return [200, { estimate: await uber.estimate(s.accountId, { pickup, dropoff }, { clientIp: s.ip }) }];
     },
 
     'POST /api/ride/cancel': async (req) => {
       const { rideId } = await readBody(req);
       if (!/^[\w-]{3,64}$/.test(String(rideId || ''))) throw new StepError('cancel', 'Invalid ride id.', { status: 400, code: 'invalid_input' });
-      return [200, { ride: await uber.cancelRide(rideId) }];
+      return [200, { ride: await uber.cancelRide(rideId, { clientIp: clientIp(req) }) }];
     },
 
     'POST /api/ride': async (req) => {
       const { id, s } = sessionFrom(req, true);
       const input = validateRide(await readBody(req));
-      const { paymentMethodId } = await uber.addPaymentMethod(s.accountId, input.paymentToken);
-      const ride = await uber.requestRide(s.accountId, { pickup: input.pickup, dropoff: input.dropoff, paymentMethodId });
+      const { paymentMethodId } = await uber.addPaymentMethod(s.accountId, input.paymentToken, { clientIp: s.ip });
+      const ride = await uber.requestRide(s.accountId, { pickup: input.pickup, dropoff: input.dropoff, paymentMethodId }, { clientIp: s.ip });
       sessions.destroy(id); // minimise retention: nothing needed after booking
       return [201, { ride }];
     },
@@ -127,7 +141,7 @@ export function createApp(config = loadConfig(), { fetchImpl } = {}) {
     'GET /api/ride': async (req, url) => {
       const rideId = url.searchParams.get('id');
       if (!rideId || !/^[\w-]{3,64}$/.test(rideId)) throw new StepError('status', 'Invalid ride id.', { status: 400, code: 'invalid_input' });
-      return [200, { ride: await uber.rideStatus(rideId) }];
+      return [200, { ride: await uber.rideStatus(rideId, { clientIp: clientIp(req) }) }];
     },
   };
 

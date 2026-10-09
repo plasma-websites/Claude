@@ -69,6 +69,16 @@ test('verification gates promos and rides; wrong code rejected; attempts capped'
   assert.equal(last.status, 429);
 });
 
+test('rider IP is forwarded to Uber (trusted proxy hops only)', async () => {
+  const cfg = loadConfig({ UBER_BASE_URL: gw, UBER_PARTNER_KEY: 'dev-partner-key', TRUST_PROXY_HOPS: '1', MAX_REGISTRATIONS_PER_HOUR: '100' });
+  const a = createApp(cfg); await new Promise((r) => a.listen(0, r));
+  await fetch(`http://localhost:${a.address().port}/api/register`, { method: 'POST',
+    headers: { 'x-forwarded-for': '6.6.6.6, 203.0.113.9' }, // first entry is client-spoofed, last is added by our proxy
+    body: JSON.stringify({ name: 'Hal Test', phone: '+14155550109', consent: true }) });
+  a.close();
+  assert.equal((await (await fetch(`${gw}/_debug/last-ip`)).json()).ip, '203.0.113.9');
+});
+
 test('requires consent and valid phone', async () => {
   assert.equal((await post('/api/register', { name: 'Ada', phone: '+14155550102', consent: false })).status, 400);
   assert.equal((await post('/api/register', { name: 'Ada', phone: '123', consent: true })).status, 400);

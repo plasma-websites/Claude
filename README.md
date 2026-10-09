@@ -56,3 +56,11 @@ Still worth a manual pass with VoiceOver/NVDA and users with disabilities before
 | 8 | Cancel ride | recommended | `cancelRide` | `UBER_PATH_CANCEL` |
 
 Not built, add only if Uber's flow needs them: address geocoding/place search, delete account (for privacy requests), webhooks for status pushes.
+
+## Rider IP
+
+The backend forwards the rider's real IP to Uber on every call, in the header named by
+`UBER_CLIENT_IP_HEADER` (default `X-Forwarded-For`; set it to whatever Uber's docs specify, or
+adapt `#call` if they want a body field). Behind a reverse proxy/load balancer set
+`TRUST_PROXY_HOPS` to the number of proxies so the IP is taken from the right `X-Forwarded-For`
+entry and can't be spoofed by the rider. The same IP drives the sign-up rate limit.

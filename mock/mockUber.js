@@ -5,13 +5,14 @@ import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 export function createMock() {
-  const methods = new Set(); const accounts = new Map(); const rides = new Map(); const tokens = new Set();
+  let lastIp = ''; const methods = new Set(); const accounts = new Map(); const rides = new Map(); const tokens = new Set();
   const send = (res, s, b) => { res.writeHead(s, { 'content-type': 'application/json', 'access-control-allow-origin': '*', 'access-control-allow-headers': '*' }); res.end(JSON.stringify(b)); };
   return http.createServer(async (req, res) => {
     if (req.method === 'OPTIONS') return send(res, 204, {});
     let raw = ''; for await (const c of req) raw += c;
     const body = raw ? JSON.parse(raw) : {};
     const p = req.url.split('?')[0];
+    if (p === '/_debug/last-ip') return send(res, 200, { ip: lastIp });
     if (p === '/gateway/tokens' && req.method === 'POST') {
       if (!/^\d{12,19}$/.test(String(body.number || '').replace(/\s/g, ''))) return send(res, 400, { message: 'Card number invalid' });
       if (String(body.number).replace(/\s/g, '').endsWith('0002')) return send(res, 402, { message: 'Card declined' });
@@ -21,7 +22,7 @@ export function createMock() {
     if (p === '/partner/v1/accounts' && req.method === 'POST') {
       if (!body.name || !body.phone) return send(res, 400, { message: 'name and phone required' });
       if (body.phone.endsWith('0000')) return send(res, 409, { code: 'exists', message: 'An account already exists for this phone number.' });
-      const id = 'acct_' + randomUUID(); accounts.set(id, { ...body, verified: false }); return send(res, 201, { accountId: id });
+      const id = 'acct_' + randomUUID(); accounts.set(id, { ...body, verified: false, ip: req.headers['x-forwarded-for'] || '' }); lastIp = req.headers['x-forwarded-for'] || ''; return send(res, 201, { accountId: id });
     }
     let m;
     if ((m = p.match(/^\/partner\/v1\/accounts\/([^/]+)\/verify$/)) && req.method === 'POST') {
