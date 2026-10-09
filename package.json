@@ -1,0 +1,15 @@
+{
+  "name": "accessible-rides",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Accessibility-focused ride request front end using Uber's official OAuth + Ride Requests API",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test"
+  },
+  "engines": { "node": ">=18" },
+  "dependencies": {
+    "express": "^4.21.0"
+  }
+}
