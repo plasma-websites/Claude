@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Book an accessible ride</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to main content</a>
+  <header><h1>Book a ride</h1><p class="sub">We'll set everything up for you in four short steps.</p></header>
+
+  <main id="main" tabindex="-1">
+    <ol class="progress" aria-label="Progress">
+      <li data-step="1">Your details</li><li data-step="2">Where to</li>
+      <li data-step="3">Payment</li><li data-step="4">Your ride</li>
+    </ol>
+
+    <div id="errors" class="error-box" role="alert" tabindex="-1" hidden></div>
+    <div id="notice" class="notice" role="status" aria-live="polite"></div>
+
+    <section id="step1" class="step" aria-labelledby="h1">
+      <h2 id="h1" tabindex="-1">Step 1 of 4: Your details</h2>
+      <form id="f1" novalidate>
+        <label for="name">Full name</label>
+        <input id="name" autocomplete="name" required>
+        <label for="phone">Mobile phone number</label>
+        <input id="phone" type="tel" autocomplete="tel" inputmode="tel" required aria-describedby="phone-hint">
+        <p id="phone-hint" class="hint">Include the country code if you are outside your home country.</p>
+        <div class="check">
+          <input id="consent" type="checkbox">
+          <label for="consent">I agree to this service creating a ride account for me, or I am authorised to agree on behalf of the rider. My details are used only to book this ride.</label>
+        </div>
+        <button type="submit">Continue</button>
+      </form>
+    </section>
+
+    <section id="step2" class="step" aria-labelledby="h2" hidden>
+      <h2 id="h2" tabindex="-1">Step 2 of 4: Where to?</h2>
+      <p id="promo-result" class="hint"></p>
+      <form id="f2" novalidate>
+        <label for="pickup">Pickup address</label>
+        <input id="pickup" list="saved" autocomplete="street-address" required>
+        <label for="dropoff">Drop-off address</label>
+        <input id="dropoff" list="saved" required>
+        <datalist id="saved"></datalist>
+        <div class="check">
+          <input id="remember" type="checkbox">
+          <label for="remember">Remember these addresses on this device only</label>
+        </div>
+        <button type="submit">Continue</button>
+      </form>
+    </section>
+
+    <section id="step3" class="step" aria-labelledby="h3" hidden>
+      <h2 id="h3" tabindex="-1">Step 3 of 4: Payment</h2>
+      <p class="hint">Your card details go straight to our secure payment provider. We never see or store them.</p>
+      <form id="f3" novalidate autocomplete="on">
+        <label for="cc-number">Card number</label>
+        <input id="cc-number" inputmode="numeric" autocomplete="cc-number" required>
+        <label for="cc-exp">Expiry (MM/YY)</label>
+        <input id="cc-exp" inputmode="numeric" autocomplete="cc-exp" placeholder="MM/YY" required>
+        <label for="cc-csc">Security code</label>
+        <input id="cc-csc" inputmode="numeric" autocomplete="cc-csc" required>
+        <button type="submit">Book my ride</button>
+      </form>
+    </section>
+
+    <section id="step4" class="step" aria-labelledby="h4" hidden>
+      <h2 id="h4" tabindex="-1">Step 4 of 4: Your ride</h2>
+      <p id="ride-status" class="big" aria-live="polite"></p>
+      <p id="ride-detail"></p>
+      <button id="again" type="button">Book another ride</button>
+    </section>
+  </main>
+  <script src="app.js" type="module"></script>
+</body>
+</html>
