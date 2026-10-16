@@ -1,0 +1,5 @@
+# Netlify: serve the My Plan app from the planner/ folder (static site, no build step)
+[build]
+  base = "planner"
+  publish = "."
+  command = "echo 'no build needed'"

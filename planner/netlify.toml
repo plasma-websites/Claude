@@ -1,0 +1,9 @@
+# Used when Netlify's base directory is set to planner/
+[build]
+  publish = "."
+  command = "echo 'no build needed'"
+
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "no-cache"
