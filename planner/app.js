@@ -154,6 +154,8 @@ function load() {
   const d = seed();
   for (const k of Object.keys(d)) if (S[k] === undefined) S[k] = d[k];
   S.settings = { ...d.settings, ...S.settings };
+  if (!S.profile.name && !S.profile.touched) S.profile.name = 'Sam';
+  S.greetRecent ||= [];
 }
 let saveT;
 function save(now) {
@@ -262,35 +264,45 @@ function toast(msg) {
 }
 
 /* ---------- bottom sheet form ---------- */
-function closeSheet() {
+let sheetOnCancel = null;
+function closeSheet(cancelled = true) {
   const dlg = $('#modal'); if (!dlg.open) return;
+  const cb = sheetOnCancel; sheetOnCancel = null;
+  if (cancelled && cb) cb();
   dlg.classList.add('closing');
   setTimeout(() => { dlg.classList.remove('closing'); dlg.close(); }, 220);
 }
+// open (or swap the content of) the bottom sheet
+function sheet(html, onCancel = null) {
+  const f = $('#modal-form'), dlg = $('#modal');
+  f.onsubmit = null; f.onclick = null; sheetOnCancel = onCancel;
+  f.innerHTML = html;
+  f.classList.remove('swap'); void f.offsetWidth; if (dlg.open) f.classList.add('swap');
+  dlg.onclick = e => { if (e.target === dlg) closeSheet(); }; // tap the backdrop to close
+  dlg.oncancel = e => { e.preventDefault(); closeSheet(); };
+  if (!dlg.open) dlg.showModal();
+  return f;
+}
 function openForm({ title, fields, onSave, onDelete, saveLabel = 'Save' }) {
-  const f = $('#modal-form');
-  f.innerHTML = `<h3>${esc(title)}</h3>` + fields.map(fl => {
+  const f = sheet(`<h3>${esc(title)}</h3>` + fields.map(fl => {
     const v = fl.value ?? '';
+    if (fl.type === 'textarea') return `<label>${esc(fl.label)}<textarea name="${fl.name}" placeholder="${esc(fl.placeholder || '')}">${esc(v)}</textarea></label>`;
     if (fl.type === 'select') return `<label>${esc(fl.label)}<select name="${fl.name}">${fl.options.map(o => `<option value="${esc(o.value)}" ${String(o.value) === String(v) ? 'selected' : ''}>${esc(o.label)}</option>`).join('')}</select></label>`;
     if (fl.type === 'days') return `<label>${esc(fl.label)}<div class="days">${DAY_ORDER.map(d => `<label><input type="checkbox" class="check" name="${fl.name}" value="${d}" ${v.includes(d) ? 'checked' : ''}>${DAYS[d]}</label>`).join('')}</div></label>`;
     return `<label>${esc(fl.label)}<input name="${fl.name}" type="${fl.type || 'text'}" value="${esc(v)}" placeholder="${esc(fl.placeholder || '')}" ${fl.step ? `step="${fl.step}"` : ''} ${fl.min !== undefined ? `min="${fl.min}"` : ''} ${fl.required ? 'required' : ''} ${fl.type === 'number' ? 'inputmode="decimal"' : ''}></label>`;
-  }).join('') + `<div class="actions">${onDelete ? '<button type="button" class="btn danger" data-m="del">Delete</button><span class="grow"></span>' : ''}<button type="button" class="btn ghost" data-m="cancel">Cancel</button><button type="submit" class="btn primary">${esc(saveLabel)}</button></div>`;
-  const dlg = $('#modal');
+  }).join('') + `<div class="actions">${onDelete ? '<button type="button" class="btn danger" data-m="del">Delete</button><span class="grow"></span>' : ''}<button type="button" class="btn ghost" data-m="cancel">Cancel</button><button type="submit" class="btn primary">${esc(saveLabel)}</button></div>`);
   f.onsubmit = e => {
     e.preventDefault();
     if (!f.reportValidity()) return;
     const fd = new FormData(f), out = {};
     for (const fl of fields) out[fl.name] = fl.type === 'days' ? fd.getAll(fl.name).map(Number) : (fd.get(fl.name) ?? '').toString().trim();
-    closeSheet(); onSave(out); save(); render();
+    closeSheet(false); onSave(out); save(); render();
   };
   f.onclick = e => {
     const m = e.target.closest('[data-m]'); if (!m) return;
     if (m.dataset.m === 'cancel') closeSheet();
-    if (m.dataset.m === 'del' && confirm('Delete this?')) { closeSheet(); onDelete(); save(); render(); }
+    if (m.dataset.m === 'del' && confirm('Delete this?')) { closeSheet(false); onDelete(); save(); render(); }
   };
-  dlg.onclick = e => { if (e.target === dlg) closeSheet(); }; // tap the backdrop to close
-  dlg.oncancel = e => { e.preventDefault(); closeSheet(); };
-  dlg.showModal();
 }
 const subjectOptions = (blank = 'General / no subject') => [{ value: '', label: blank }, ...S.subjects.map(x => ({ value: x.id, label: `${x.emoji} ${x.name}` }))];
 const kindOptions = keys => keys.map(k => ({ value: k, label: `${KINDS[k].ico} ${KINDS[k].label}` }));
@@ -332,6 +344,7 @@ function route() {
 }
 function render() {
   const r = route();
+  if (r.key !== lastRoute && r.name === 'today') greet = null; // fresh greeting each time you open Today
   const html = views[r.name](r.arg);
   const view = $('#view');
   if (r.key !== lastRoute) {
@@ -342,6 +355,7 @@ function render() {
     view.classList.add('page-enter');
     window.scrollTo(0, 0);
     if (r.name === 'coach') scrollChatToEnd(false);
+    if (r.name === 'today') scrollStripToNow();
   } else {
     const tpl = document.createElement('div');
     tpl.innerHTML = html;
@@ -377,13 +391,59 @@ function installBanner() {
   if (isStandalone() || !isIOS()) return '';
   return `<div class="banner">📲 <b>Add to Home Screen:</b> tap Share <b>⬆︎</b> in Safari → <b>“Add to Home Screen”</b>. Open it from there to turn on notifications.</div>`;
 }
+const timerSecs = () => S.timer ? ((S.timer.endedAt || Date.now()) - S.timer.startedAt) / 1000 : 0;
+const isStudyKind = k => k === 'study' || k === 'reading' || k === 'tutoring';
+const loggedFor = (b, key = dkey()) => sumLogs(l => l.blockId === b.id && l.date === key);
+// start / finish / log buttons for a study block
+function blockActions(b, hero) {
+  const cls = hero ? 'btn solid' : 'btn small primary', cls2 = hero ? 'btn' : 'btn small';
+  if (S.timer && S.timer.blockId === b.id) return `<button class="${cls}" data-act="session-finish">■ Finish <span class="num" data-timer>${fmtClock(timerSecs())}</span></button>`;
+  const done = loggedFor(b);
+  if (done) return `<span class="pc-done">✓ ${fmtH(done)} logged</span>${S.timer ? '' : `<button class="${cls2}" data-act="session-start" data-id="${b.id}">▶ Again</button>`}`;
+  return `<button class="${cls}" data-act="session-start" data-id="${b.id}" ${S.timer ? 'disabled' : ''}>▶ Start</button><button class="${cls2}" data-act="session-log" data-id="${b.id}">✓ Log</button>`;
+}
+function planStrip(blocks, m) {
+  return `<div class="strip" data-key="strip">${blocks.map(b => {
+    const s = subj(b.subjectId), k = KINDS[b.kind] || KINDS.other;
+    const ends = toMin(b.end) > toMin(b.start), cur = inBlock(b, m);
+    const state = cur ? 'current' : ends && toMin(b.end) <= m ? 'past' : '';
+    return `<div class="pcard ${state} ${isStudyKind(b.kind) ? 'focus' : ''}" data-key="pc${b.id}" ${cur ? 'data-current' : ''}>
+      <div class="pc-top"><span class="pc-ico">${s ? s.emoji : k.ico}</span><span class="pc-time num">${b.start}–${b.end}</span></div>
+      <div class="pc-title">${esc(b.title)}</div>
+      ${isStudyKind(b.kind) ? `<div class="pc-act">${blockActions(b)}</div>` : `<div class="pc-sub">${cur ? 'Now' : k.label}</div>`}
+    </div>`;
+  }).join('')}</div>`;
+}
+function scrollStripToNow(smooth) {
+  const strip = $('.strip'), c = strip && strip.querySelector('[data-current]') || (strip && [...strip.children].find(x => !x.classList.contains('past')));
+  if (c) strip.scrollTo({ left: c.offsetLeft - 16, behavior: smooth ? 'smooth' : 'auto' });
+}
+let greet = null;
+function greeting() {
+  const now = new Date(), { cur } = nowNext(now), k = dkey(now), g = dayGoalMins(now.getDay());
+  const slot = typeof slotFor === 'function' ? slotFor(now.getHours()) : '';
+  if (typeof pickGreeting !== 'function') return `Hello${S.profile.name ? ', ' + esc(S.profile.name) : ''}`;
+  if (!greet || greet.slot !== slot || greet.block !== (cur && cur.id)) {
+    const last = S.logs.reduce((a, l) => l.date > a ? l.date : a, '');
+    const ctx = {
+      name: S.profile.name.trim(), now, kind: cur && cur.kind, streak: streak(),
+      goalHit: !!g && dayDone(k) >= g, weekHit: weekGoalMins() > 0 && weekMins() >= weekGoalMins(),
+      examSoon: S.subjects.some(x => x.examDate && daysUntil(x.examDate) >= 0 && daysUntil(x.examDate) <= 21),
+      idleDays: last ? daysUntil(last) * -1 : 0
+    };
+    const p = pickGreeting(ctx, S.greetRecent);
+    S.greetRecent = [p.id, ...S.greetRecent].slice(0, 60); save();
+    greet = { slot, block: cur && cur.id, text: p.text };
+  }
+  return esc(greet.text);
+}
 function timerCard() {
   if (!S.timer) return '';
   const s = subj(S.timer.subjectId), k = KINDS[S.timer.kind] || KINDS.study;
   return `<div class="hero" data-key="timer">
     <div class="eyebrow"><span class="live-dot"></span>${esc(k.label)}${s ? ' · ' + s.emoji + ' ' + esc(s.name) : ''}</div>
-    <div class="timer" data-timer>${fmtClock((Date.now() - S.timer.startedAt) / 1000)}</div>
-    <div class="row mt"><button class="btn solid" data-act="timer-stop">■ Stop & log</button><button class="btn" data-act="timer-cancel">Discard</button></div>
+    <div class="timer" data-timer>${fmtClock(timerSecs())}</div>
+    <div class="row mt"><button class="btn solid" data-act="session-finish">■ Finish</button><button class="btn" data-act="timer-cancel">Discard</button></div>
   </div>`;
 }
 
@@ -393,8 +453,6 @@ const views = {};
 views.today = () => {
   const now = new Date(), key = dkey(now), dow = now.getDay();
   const { cur, next, m } = nowNext(now);
-  const h = now.getHours();
-  const hello = h < 5 ? 'Up late' : h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
   const done = dayDone(key), g = dayGoalMins(dow), gd = goal(dow);
   const wk = weekMins(), wg = weekGoalMins(), rd = weekMins(weekStart(), l => l.kind === 'reading'), rg = weekReadingGoalMins();
   const tasks = S.tasks.filter(t => t.date === key || (!t.done && t.date < key));
@@ -403,18 +461,17 @@ views.today = () => {
   const curK = cur && (KINDS[cur.kind] || KINDS.other), curS = cur && subj(cur.subjectId);
   let progress = 0, left = 0;
   if (cur) { const len = blockLen(cur), into = (m - toMin(cur.start) + 1440) % 1440; progress = Math.min(1, into / len); left = len - into; }
-  const loggedBlock = cur && S.logs.some(l => l.blockId === cur.id && l.date === key);
   const topic = curS && curS.plan.find(p => !p.done);
   const goalText = gd.r ? `${fmtH(gd.r * 60)} reading ahead + ${fmtH(g - gd.r * 60)} study` : gd.tut ? 'At tutoring' : g ? `${fmtH(g)} study` : 'No study goal today';
 
   return `
   <div class="topbar">
     <div><div class="sub">${now.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })}</div>
-    <h1>${hello}${S.profile.name ? ', ' + esc(S.profile.name) : ''}</h1></div>
+    <h1 class="greet">${greeting()}</h1></div>
     <a class="icon-btn" href="#/settings" aria-label="Settings">⚙️</a>
   </div>
   ${installBanner()}
-  ${timerCard()}
+  ${S.timer && (!S.timer.blockId || !cur || S.timer.blockId !== cur.id) ? timerCard() : ''}
   <div class="hero" data-key="now">
     <div class="eyebrow"><span class="live-dot"></span>Right now</div>
     ${cur ? `<div class="big">${curS ? curS.emoji : curK.ico} ${esc(cur.title)}</div>
@@ -422,10 +479,12 @@ views.today = () => {
       <div class="track"><span style="width:${(progress * 100).toFixed(1)}%"></span></div>
       ${cur.note ? `<div class="note">💡 ${esc(cur.note)}</div>` : ''}
       ${topic ? `<div class="note">Focus on: <b>${esc(topic.text)}</b></div>` : ''}
-      ${!S.timer && (cur.kind === 'study' || cur.kind === 'reading') ? `<div class="row mt wrap"><button class="btn solid" data-act="timer-pick" data-kind="${cur.kind}" data-sid="${cur.subjectId || ''}">▶ Start ${esc(curK.label.toLowerCase())}</button></div>` : ''}
-      ${cur.kind === 'tutoring' ? (loggedBlock ? '<div class="note">✓ Tutoring logged</div>' : `<div class="row mt"><button class="btn solid" data-act="log-block" data-id="${cur.id}">✓ Log tutoring (${fmtH(blockLen(cur))})</button></div>`) : ''}`
+      ${isStudyKind(cur.kind) ? `<div class="row mt wrap">${blockActions(cur, true)}</div>` : ''}`
       : `<div class="big">Free time</div><div class="sub">${next ? `Next: ${esc(next.title)} at ${next.start}` : 'Nothing else planned today'}</div>`}
   </div>
+
+  <div class="strip-head"><span>Today’s plan</span><a href="#/schedule">Edit week ›</a></div>
+  ${planStrip(blocksFor(dow), m)}
 
   <div class="rings">
     ${ring(done, g, 'Today', `${fmtH(done)} / ${fmtH(g)}`, '#/stats')}
@@ -445,9 +504,6 @@ views.today = () => {
       <button class="x" data-act="task-del" data-id="${t.id}" aria-label="Delete">×</button></li>`; }).join('') : '<li class="empty" data-key="t-empty">Nothing yet – what do you need to get done today?</li>'}</ul>
     <form class="add-row" data-form="task-add"><input name="text" placeholder="Add a task…" autocomplete="off" enterkeyhint="done" required><button class="btn">Add</button></form>
   </div>
-
-  <h2>Today’s plan <a href="#/schedule">Edit week ›</a></h2>
-  <div class="card">${timeline(blocksFor(dow), m)}</div>
 
   ${exams.length ? `<h2>Coming up</h2><div class="card"><ul class="list">${exams.map(x => { const n = daysUntil(x.examDate); return `<li data-key="e${x.id}"><span>${x.emoji}</span><a class="grow" href="#/subject/${x.id}">${esc(x.name)} exam</a><span class="pill ${n <= 14 ? 'warn' : ''}">${n === 0 ? 'Today!' : n === 1 ? 'Tomorrow' : n + ' days'}</span></li>`; }).join('')}</ul></div>` : ''}
 
@@ -486,7 +542,7 @@ views.subject = id => {
   if (!x) return `<a class="back" href="#/subjects">‹ Subjects</a><p>Subject not found.</p>`;
   const wk = weekMins(weekStart(), l => l.subjectId === x.id && isSelf(l)), tgt = x.weeklyTarget * 60;
   const done = x.plan.filter(p => p.done).length;
-  const logs = S.logs.filter(l => l.subjectId === x.id).sort((a, b) => b.date.localeCompare(a.date) || b.at - a.at).slice(0, 15);
+  const logs = S.logs.filter(l => l.subjectId === x.id).sort((a, b) => b.date.localeCompare(a.date) || b.at - a.at).slice(0, 30);
   const n = x.examDate ? daysUntil(x.examDate) : null;
   return `
   <a class="back" href="#/subjects">‹ Subjects</a>
@@ -501,7 +557,7 @@ views.subject = id => {
     <div class="stat"><b>${x.plan.length ? Math.round(done / x.plan.length * 100) : 0}%</b><span>plan done</span></div>
   </div>
   ${S.timer && S.timer.subjectId === x.id ? '<div class="mt">' + timerCard() + '</div>' : `
-  <div class="row mt"><button class="btn primary grow" data-act="timer-pick" data-sid="${x.id}" ${S.timer ? 'disabled' : ''}>▶ Start timer</button>
+  <div class="row mt"><button class="btn primary grow" data-act="timer-pick" data-sid="${x.id}" ${S.timer ? 'disabled' : ''}>▶ Start session</button>
   <button class="btn grow" data-act="log-manual" data-sid="${x.id}">＋ Log time</button></div>`}
 
   <h2>Study plan</h2>
@@ -514,20 +570,24 @@ views.subject = id => {
     <form class="add-row" data-form="plan-add" data-sid="${x.id}"><input name="text" placeholder="Add a topic…" autocomplete="off" enterkeyhint="done" required><button class="btn">Add</button></form>
   </div>
 
+  <h2>Work completed</h2>
+  <div class="card"><ul class="list">${logs.map(l => logRow(l, true)).join('') || '<li class="empty">Nothing yet – finish a session and blurt what you did.</li>'}</ul></div>
+
   <h2>Notes</h2>
   <div class="card"><textarea data-bind="notes" data-sid="${x.id}" placeholder="Key formulas, things to ask the teacher, homework…">${esc(x.notes)}</textarea></div>
 
   <h2>Links & resources</h2>
   <div class="card"><ul class="list">${x.links.map(l => `<li data-key="l${l.id}"><span>🔗</span><a class="grow" href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.label || l.url)}</a><button class="x" data-act="link-del" data-sid="${x.id}" data-id="${l.id}" aria-label="Delete">×</button></li>`).join('') || '<li class="empty">No links yet.</li>'}</ul>
-  <button class="btn small mt" data-act="link-add" data-id="${x.id}">＋ Add link</button></div>
-
-  <h2>Recent sessions</h2>
-  <div class="card"><ul class="list">${logs.map(logRow).join('') || '<li class="empty">No study logged yet.</li>'}</ul></div>`;
+  <button class="btn small mt" data-act="link-add" data-id="${x.id}">＋ Add link</button></div>`;
 };
 
-function logRow(l) {
+// inSubject: on a subject page, lead with the work done (book · topic) instead of the subject name
+function logRow(l, inSubject) {
   const s = subj(l.subjectId), k = KINDS[l.kind] || KINDS.study;
-  return `<li data-key="g${l.id}"><span>${s ? s.emoji : k.ico}</span><span class="grow">${s ? esc(s.name) : k.label}${s && l.kind !== 'study' ? ` <span class="pill">${k.label}</span>` : ''}<br><span class="sub">${prettyDate(l.date)}${l.note ? ' · ' + esc(l.note) : ''}</span></span><b class="num">${fmtH(l.minutes)}</b><button class="x" data-act="log-del" data-id="${l.id}" aria-label="Delete">×</button></li>`;
+  const work = esc([l.resource, l.topic].filter(Boolean).join(' · '));
+  const title = inSubject ? (work || k.label) : s ? esc(s.name) : k.label;
+  const sub = [inSubject ? '' : work, esc(l.details || ''), prettyDate(l.date), l.kind !== 'study' && (inSubject || s) ? k.label : ''].filter(Boolean).join(' · ');
+  return `<li data-key="g${l.id}"><span>${s ? s.emoji : k.ico}</span><span class="grow">${title}<br><span class="sub">${sub}</span></span><b class="num">${fmtH(l.minutes)}</b><button class="x" data-act="log-del" data-id="${l.id}" aria-label="Delete">×</button></li>`;
 }
 
 // one series (hours) with a dashed goal marker per column
@@ -569,7 +629,7 @@ views.stats = () => {
     <li style="--c:${x.color};display:block" data-key="w${x.id}"><div class="row between"><a href="#/subject/${x.id}" style="color:inherit;text-decoration:none">${x.emoji} ${esc(x.name)}</a><span class="sub num">${fmtH(w)}${t ? ' / ' + fmtH(t) : ''}</span></div>
     <div class="meter"><span style="width:${Math.min(100, t ? w / t * 100 : 0)}%"></span></div></li>`; }).join('')}</ul></div>` : ''}
   <h2>Sessions</h2>
-  <div class="card"><ul class="list">${all.map(logRow).join('') || '<li class="empty">Nothing logged yet. Start a timer or tap ＋.</li>'}</ul></div>`;
+  <div class="card"><ul class="list">${all.map(l => logRow(l)).join('') || '<li class="empty">Nothing logged yet. Start a timer or tap ＋.</li>'}</ul></div>`;
 };
 
 views.life = () => `
@@ -683,13 +743,14 @@ views.settings = () => {
 };
 
 /* ---------- actions ---------- */
-function startTimer(subjectId, kind = 'study') {
-  S.timer = { subjectId, kind, startedAt: Date.now() };
-  toast(`${KINDS[kind].label} timer started – you’ve got this 💪`);
+function startTimer(subjectId, kind = 'study', blockId = '') {
+  S.timer = { subjectId, kind, blockId, startedAt: Date.now() };
+  toast(`${KINDS[kind].label} started – you’ve got this 💪`);
 }
-function addLog(entry) {
+function addLog(entry) { addLogs([entry]); }
+function addLogs(entries) {
   const before = goalSnapshot();
-  S.logs.push({ id: uid(), at: Date.now(), date: dkey(), note: '', subjectId: '', kind: 'study', ...entry });
+  for (const e of entries) S.logs.push({ id: uid(), at: Date.now(), date: dkey(), note: '', subjectId: '', kind: 'study', resource: '', topic: '', details: '', ...e });
   celebrate(before, goalSnapshot());
 }
 function subjectForm(x) {
@@ -731,34 +792,10 @@ function blockForm(b) {
     onDelete: b && (() => { S.schedule[schedDay] = S.schedule[schedDay].filter(x => x.id !== b.id); })
   });
 }
-function pickAndStart(kind, sid) {
-  if (sid || !S.subjects.length) return startTimer(sid || '', kind);
-  openForm({
-    title: 'Start timer', saveLabel: '▶ Start',
-    fields: [
-      { name: 'kind', label: 'Type', type: 'select', value: kind || 'study', options: kindOptions(['study', 'reading']) },
-      { name: 'subjectId', label: 'Subject', type: 'select', value: '', options: subjectOptions() }
-    ],
-    onSave: v => startTimer(v.subjectId, v.kind)
-  });
-}
-
 const actions = {
   'task-toggle': el => { const t = S.tasks.find(x => x.id === el.dataset.id); t.done = el.checked; if (t.done) t.date = dkey(); },
   'task-del': el => { S.tasks = S.tasks.filter(x => x.id !== el.dataset.id); },
-  'timer-pick': el => pickAndStart(el.dataset.kind || 'study', el.dataset.sid || ''),
-  'timer-stop': () => {
-    const mins = Math.max(1, Math.round((Date.now() - S.timer.startedAt) / 60000));
-    const t = S.timer; S.timer = null;
-    addLog({ subjectId: t.subjectId, kind: t.kind, minutes: mins, start: t.startedAt, date: dkey(new Date(t.startedAt)) });
-    toast(`Logged ${fmtH(mins)} 🎉`);
-  },
   'timer-cancel': () => { if (confirm('Discard this session without logging it?')) S.timer = null; },
-  'log-block': el => {
-    const b = Object.values(S.schedule).flat().find(x => x.id === el.dataset.id); if (!b) return;
-    addLog({ kind: LOG_KINDS.includes(b.kind) ? b.kind : 'study', minutes: blockLen(b), blockId: b.id, note: b.title });
-    toast(`Logged ${fmtH(blockLen(b))} of ${b.title.toLowerCase()} ✓`);
-  },
   'log-manual': el => openForm({
     title: 'Log study time', saveLabel: 'Log it',
     fields: [
@@ -861,7 +898,7 @@ document.addEventListener('input', e => {
   const k = el.dataset.bind, v = el.value, st = S.settings;
   if (k === 'notes') subj(el.dataset.sid).notes = v;
   else if (k === 'vision') S.life.vision = v;
-  else if (k === 'name') S.profile.name = v;
+  else if (k === 'name') { S.profile.name = v; S.profile.touched = true; }
   else if (k === 'goal-h' || k === 'goal-r') { const g = st.goals[el.dataset.d] ||= { h: 0, r: 0 }; g[k === 'goal-h' ? 'h' : 'r'] = Math.max(0, Number(v) || 0); }
   else if (k === 'remindBefore') st.remindBefore = Math.max(0, Number(v) || 0);
   else if (k === 'apiKey') st.apiKey = v.trim();
@@ -947,6 +984,7 @@ function analytics() {
     timerRunning: S.timer ? { kind: S.timer.kind, minutesSoFar: Math.round((Date.now() - S.timer.startedAt) / 60000) } : null,
     rightNow: cur ? `${cur.title} (${cur.start}–${cur.end})` : null, nextBlock: next ? `${next.title} at ${next.start}` : null,
     rota: Object.fromEntries(DAY_ORDER.map(d => [DAYS[d], blocksFor(d).map(b => `${b.start}-${b.end} ${b.title}`)])),
+    recentWork: [...S.logs].sort((a, b) => b.date.localeCompare(a.date) || b.at - a.at).slice(0, 25).map(l => ({ date: l.date, subject: (subj(l.subjectId) || {}).name || 'General', kind: l.kind, minutes: l.minutes, resource: l.resource || undefined, topic: l.topic || undefined, details: l.details || undefined })),
     openTasks: S.tasks.filter(t => !t.done).map(t => t.text).slice(0, 10),
     lifeGoals: S.life.areas.map(a => ({ area: a.title, open: a.goals.filter(g => !g.done).map(g => g.text), done: a.goals.filter(g => g.done).length }))
   };
@@ -1082,7 +1120,8 @@ function checkReminders() {
 /* ---------- ticks ---------- */
 setInterval(() => {
   if (document.hidden || !S.timer) return;
-  $$('[data-timer]').forEach(t => { t.textContent = fmtClock((Date.now() - S.timer.startedAt) / 1000); });
+  if (S.timer.endedAt) return;
+  $$('[data-timer]').forEach(t => { t.textContent = fmtClock(timerSecs()); });
 }, 1000);
 let lastMin = nowMin();
 setInterval(() => {
@@ -1090,7 +1129,12 @@ setInterval(() => {
   const m = nowMin();
   if (m !== lastMin && !document.hidden && !coachBusy) { lastMin = m; render(); }
 }, 10000);
-document.addEventListener('visibilitychange', () => { if (!document.hidden) { checkReminders(); if (!coachBusy) render(); } });
+let hiddenAt = 0;
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) { hiddenAt = Date.now(); return; }
+  if (Date.now() - hiddenAt > 5 * 60000) greet = null; // new greeting when you come back
+  checkReminders(); if (!coachBusy) render();
+});
 
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 applyTheme();

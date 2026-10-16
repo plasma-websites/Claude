@@ -1,7 +1,7 @@
 // Offline support + notification clicks. Bump VERSION when you change files.
-const VERSION = 'plan-v2';
+const VERSION = 'plan-v3';
 const ASSETS = [
-  './', './index.html', './app.js', './styles.css', './manifest.webmanifest',
+  './', './index.html', './app.js', './greetings.js', './session.js', './styles.css', './manifest.webmanifest',
   './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png'
 ];
 
