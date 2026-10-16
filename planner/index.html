@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>My Plan</title>
+  <meta name="description" content="My life plan, study plan and study hour log.">
+  <meta name="theme-color" content="#4f46e5">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="My Plan">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="icon" type="image/png" href="icons/icon-192.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main id="view" aria-live="polite"></main>
+
+  <nav class="tabbar" aria-label="Sections">
+    <a href="#/" data-tab="today"><span class="ti">☀️</span>Today</a>
+    <a href="#/subjects" data-tab="subjects"><span class="ti">📚</span>Subjects</a>
+    <a href="#/schedule" data-tab="schedule"><span class="ti">🗓️</span>Schedule</a>
+    <a href="#/life" data-tab="life"><span class="ti">🧭</span>Life plan</a>
+    <a href="#/stats" data-tab="stats"><span class="ti">📈</span>Hours</a>
+  </nav>
+
+  <dialog id="modal"><form method="dialog" id="modal-form"></form></dialog>
+  <div id="toast" role="status"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
