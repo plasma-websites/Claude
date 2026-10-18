@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>What's My IP</title>
+  <meta name="description" content="See your public IPv4 and IPv6 addresses, with a local history of past IPs.">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main>
+    <p class="label">Your IPv4 address</p>
+    <h1 id="ipv4" class="ipv4">Loading…</h1>
+    <button class="copy" data-target="ipv4" type="button">Copy</button>
+
+    <p class="label">Your IPv6 address</p>
+    <h2 id="ipv6" class="ipv6">Loading…</h2>
+    <button class="copy" data-target="ipv6" type="button">Copy</button>
+
+    <div class="actions">
+      <button id="refresh" type="button">Refresh</button>
+    </div>
+
+    <section class="history">
+      <div class="history-head">
+        <h3>IP history</h3>
+        <button id="reset" class="danger" type="button">Reset history</button>
+      </div>
+      <p class="hint">Stored only in this browser. A new entry is added whenever your IP changes.</p>
+      <table>
+        <thead><tr><th>When</th><th>IPv4</th><th>IPv6</th></tr></thead>
+        <tbody id="history-body"></tbody>
+      </table>
+      <p id="empty" class="empty" hidden>No history yet.</p>
+    </section>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>
