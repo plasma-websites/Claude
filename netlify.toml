@@ -1,0 +1,4 @@
+# Deploys the What's My IP site in whats-my-ip/ even when Netlify has no base directory set.
+[build]
+  publish = "whats-my-ip"
+  command = ""
