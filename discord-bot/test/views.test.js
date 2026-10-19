@@ -48,7 +48,7 @@ test('ticket names carry status emoji and order number', () => {
 });
 
 test('staff and ticket buttons follow status', () => {
-  assert.deepEqual(ids(views.staffButtons(order, 'g')), ['order:accept:483920', 'order:decline:483920']);
+  assert.deepEqual(ids(views.staffButtons(order, 'g')), ['order:accept:483920']);
   const accepted = { ...order, status: 'accepted', ordererId: '2', ticketChannelId: 'c' };
   assert.deepEqual(ids(views.staffButtons(accepted, 'g')), ['https://discord.com/channels/g/c']);
   assert.deepEqual(ids(views.ticketButtons(accepted)), ['order:complete:483920', 'order:close:483920', 'order:delete:483920']);
@@ -123,4 +123,15 @@ test('completed, vouch and announcement views', () => {
   assert.equal(views.announceModal('c1', 'here').toJSON().custom_id, 'announce:c1:here');
   assert.equal(views.announcementEmbed({ title: 'Hi', message: 'x', image: 'https://e.com/a.png', author: 'sam' }).toJSON().image.url, 'https://e.com/a.png');
   for (const n of ['tos', 'vouchpanel', 'announce']) assert.ok(commands.some((c) => c.toJSON().name === n), n);
+});
+
+test('why food hub panel and embeds', async () => {
+  const { WHY_FOOD_HUB, WHY_OVER_FOODPLUG } = await import('../src/whyfoodhub.js');
+  assert.deepEqual(ids(views.whyPanel().components), ['why:hub', 'why:foodplug']);
+  const hub = views.whyFoodHubEmbed(WHY_FOOD_HUB).toJSON();
+  assert.equal(hub.title, '🍔 WHY CHOOSE FOOD HUB?');
+  assert.ok(hub.description.includes('Community First') && hub.description.includes('SMARTER SAVINGS'));
+  const plug = views.whyOverFoodplugEmbed(WHY_OVER_FOODPLUG).toJSON();
+  assert.ok(plug.description.includes('COUGH COUGH BEN') && plug.description.includes('Built for the community'));
+  assert.ok(commands.some((c) => c.toJSON().name === 'whyfoodhub'));
 });

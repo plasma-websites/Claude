@@ -64,7 +64,7 @@ test('open orders and ticket lookups', () => {
   const a = newOrder(store);
   const b = newOrder(store);
   newOrder(store, 'other');
-  store.decline(a.id);
+  store.cancel(a.id, 'cust');
   assert.equal(store.openOrdersFor('cust').length, 1);
   store.updateOrder(b.id, { ticketChannelId: 'chan' });
   assert.equal(store.orderByTicket('chan').id, b.id);

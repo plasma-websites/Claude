@@ -16,7 +16,7 @@ support tickets, a verify panel and moderation commands.
 5. The bot DMs them asking for their **order screenshot** (15 minutes to send it) and gives them a random
    6-digit **order number**, e.g. `#483920`.
 6. The order appears in the **staff orders channel** with the screenshot, pinging the orderer role, with
-   **Accept order** and **Decline** buttons.
+   an **Accept order** button.
 7. **Accept order** (orderer role only, one person per order) creates a private ticket in the tickets category,
    named after the order number with a status emoji, e.g. `🔵-order-483920`. Its panel shows all the order info
    and the screenshot.
@@ -74,6 +74,7 @@ verify panel with a button to your verify link.
 | `/verifypanel [channel:]` | Manage Server | Post the verify panel (needs `VERIFY_URL`) |
 | `/vouchpanel` | Manage Server | Post / move the vouch panel to the bottom of the vouch channel |
 | `/tos [channel:]` | Manage Server | Post the order policy & server rules panel |
+| `/whyfoodhub [channel:]` | Manage Server | Post the Why Food Hub panel (2 buttons, text in `src/whyfoodhub.js`) |
 | `/announce [channel:] [ping:]` | Manage Server | Post an announcement panel |
 | `/myorders` | everyone | Your recent orders and their status |
 | `/cancel id:` | everyone | Cancel your order before it's accepted |

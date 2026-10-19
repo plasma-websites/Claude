@@ -14,6 +14,7 @@ export const commands = [
   panelCommand('supportpanel', 'Post the support tickets panel'),
   panelCommand('verifypanel', 'Post the verify panel (RestoreCord / VaultCord link)'),
   panelCommand('tos', 'Post the order policy & server rules'),
+  panelCommand('whyfoodhub', 'Post the Why Food Hub panel'),
   new SlashCommandBuilder()
     .setName('vouchpanel')
     .setDescription('Post (or move to the bottom) the vouch panel in the vouch channel')

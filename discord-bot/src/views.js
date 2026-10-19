@@ -131,12 +131,7 @@ export function orderEmbed(order) {
 // Buttons under the order in the staff channel.
 export function staffButtons(order, guildId) {
   if (order.status === 'pending') {
-    return [
-      row(
-        button(`order:accept:${order.id}`, 'Accept order', ButtonStyle.Success, '✅'),
-        button(`order:decline:${order.id}`, 'Decline', ButtonStyle.Danger, '✖️'),
-      ),
-    ];
+    return [row(button(`order:accept:${order.id}`, 'Accept order', ButtonStyle.Success, '✅'))];
   }
   if (order.ticketChannelId && ['accepted', 'completed', 'closed'].includes(order.status)) {
     return [row(linkButton(channelUrl(guildId, order.ticketChannelId), 'Open ticket', '🎫'))];
@@ -385,4 +380,42 @@ export function tosPanel(tos) {
     .setFooter({ text: `🙏 ${tos.footer}` })
     .setTimestamp();
   return { embeds: [embed] };
+}
+
+// --- why Food Hub ---
+
+export function whyPanel() {
+  const embed = new EmbedBuilder()
+    .setTitle('🍔  WHY FOOD HUB?  🍔')
+    .setColor(0xf1c40f)
+    .setDescription(
+      [
+        '> Thinking about ordering with us? Here\'s what we\'re about. 💛',
+        DIVIDER,
+        '🍔 **Why Food Hub?** — what you can expect from us',
+        '🆚 **Why Food Hub over Foodplug?** — what makes us different',
+        DIVIDER,
+        '👇 Tap a button below to read more!',
+      ].join('\n'),
+    );
+  return {
+    embeds: [embed],
+    components: [
+      row(
+        button('why:hub', 'Why Food Hub?', ButtonStyle.Primary, '🍔'),
+        button('why:foodplug', 'Why Food Hub over Foodplug?', ButtonStyle.Secondary, '🆚'),
+      ),
+    ],
+  };
+}
+
+export function whyFoodHubEmbed(why) {
+  return new EmbedBuilder()
+    .setTitle(why.title)
+    .setColor(0xf1c40f)
+    .setDescription([`> ${why.intro}`, DIVIDER, why.points.join('\n\n'), DIVIDER, why.tagline, '', why.outro].join('\n'));
+}
+
+export function whyOverFoodplugEmbed(why) {
+  return new EmbedBuilder().setTitle(why.title).setColor(0xf1c40f).setDescription(why.paragraphs.join('\n\n'));
 }

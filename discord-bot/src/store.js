@@ -105,10 +105,6 @@ export class Store {
     return this.#transition(id, ['accepted'], { status: 'pending', ordererId: null });
   }
 
-  decline(id) {
-    return this.#transition(id, ['pending'], { status: 'declined' });
-  }
-
   complete(id, closeAt) {
     return this.#transition(id, ['accepted'], { status: 'completed', closeAt: closeAt.toISOString() });
   }

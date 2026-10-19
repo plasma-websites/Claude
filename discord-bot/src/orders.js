@@ -158,7 +158,7 @@ export function createOrderHandlers({ client, config, store, promos }) {
     );
   }
 
-  // --- staff channel: accept / decline ---
+  // --- staff channel: accept ---
 
   async function accept(interaction, id) {
     if (!hasRole(interaction.member, config.ordererRoleId)) {
@@ -194,14 +194,6 @@ export function createOrderHandlers({ client, config, store, promos }) {
     await interaction.editReply({ embeds: [orderEmbed(order)], components: staffButtons(order, config.guildId) });
     dm(client, order.customerId, `🎉 Your **${label(order)}** was accepted! Head to your ticket 👉 ${channelUrl(config.guildId, ticket.id)}`);
     return interaction.followUp(ephemeral(`🎫 Ticket created: <#${ticket.id}>`));
-  }
-
-  async function decline(interaction, id) {
-    if (!isStaff(interaction)) return interaction.reply(ephemeral('Only staff can decline orders.'));
-    const result = store.decline(id);
-    if (result.error) return interaction.reply(ephemeral(result.error));
-    dm(client, result.order.customerId, `🔴 Sorry, your **${label(result.order)}** was declined. Open a support ticket if you have any questions. 🎫`);
-    return interaction.update({ embeds: [orderEmbed(result.order)], components: staffButtons(result.order, config.guildId) });
   }
 
   // --- ticket panel: complete / close / delete ---
@@ -260,7 +252,8 @@ export function createOrderHandlers({ client, config, store, promos }) {
       case 'vc': return pickVc(interaction, a, b, c);
       case 'details': return submitDetails(interaction, a, b, c);
       case 'accept': return accept(interaction, Number(a));
-      case 'decline': return decline(interaction, Number(a));
+      // Older order posts may still show a Decline button; declining was removed.
+      case 'decline': return interaction.reply(ephemeral('Declining orders has been removed — accept it, or ask the customer to `/cancel` it.'));
       case 'complete': return complete(interaction, Number(a));
       case 'close': return close(interaction, Number(a));
       case 'delete': return remove(interaction, Number(a));

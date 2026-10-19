@@ -1,4 +1,4 @@
-import { Client, Events, GatewayIntentBits, Partials } from 'discord.js';
+import { Client, Events, GatewayIntentBits, MessageFlags, Partials } from 'discord.js';
 import { loadConfig, loadPromos } from './config.js';
 import { moderationCommands } from './moderation.js';
 import { createOrderHandlers } from './orders.js';
@@ -6,6 +6,7 @@ import { SERVICES, STATUS } from './services.js';
 import { Store } from './store.js';
 import { createSupportHandlers } from './support.js';
 import { TOS } from './tos.js';
+import { WHY_FOOD_HUB, WHY_OVER_FOODPLUG } from './whyfoodhub.js';
 import { editMessage, ensureTicketCategory, ephemeral, isAdmin } from './util.js';
 import { createVouchHandlers } from './vouches.js';
 import {
@@ -17,6 +18,9 @@ import {
   supportPanel,
   tosPanel,
   verifyPanel,
+  whyFoodHubEmbed,
+  whyOverFoodplugEmbed,
+  whyPanel,
 } from './views.js';
 
 const config = loadConfig(['DISCORD_TOKEN', 'GUILD_ID', 'STAFF_ORDERS_CHANNEL_ID', 'ORDERER_ROLE_ID']);
@@ -40,7 +44,8 @@ async function handleCommand(interaction) {
     case 'orderpanel':
     case 'supportpanel':
     case 'verifypanel':
-    case 'tos': {
+    case 'tos':
+    case 'whyfoodhub': {
       if (name === 'verifypanel' && !config.verifyUrl) {
         return interaction.reply(ephemeral('Set `VERIFY_URL` in `.env` to your RestoreCord / VaultCord verify link first, then restart the bot.'));
       }
@@ -50,6 +55,7 @@ async function handleCommand(interaction) {
         supportpanel: supportPanel,
         verifypanel: () => verifyPanel(config.verifyUrl),
         tos: () => tosPanel(TOS),
+        whyfoodhub: whyPanel,
       }[name]();
       try {
         await channel.send(panel);
@@ -125,6 +131,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
     if (interaction.customId.startsWith('support:')) return await support.handleComponent(interaction);
     if (interaction.customId.startsWith('vouch:')) return await vouches.handleComponent(interaction);
     if (interaction.customId.startsWith('announce:')) return await postAnnouncement(interaction);
+    if (interaction.customId === 'why:hub') return await interaction.reply({ embeds: [whyFoodHubEmbed(WHY_FOOD_HUB)], flags: MessageFlags.Ephemeral });
+    if (interaction.customId === 'why:foodplug') {
+      return await interaction.reply({ embeds: [whyOverFoodplugEmbed(WHY_OVER_FOODPLUG)], flags: MessageFlags.Ephemeral });
+    }
   } catch (err) {
     console.error(err);
     const reply = ephemeral('Something went wrong, please try again.');
