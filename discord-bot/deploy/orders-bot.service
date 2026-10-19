@@ -1,0 +1,14 @@
+[Unit]
+Description=Discord orders bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=ordersbot
+WorkingDirectory=__BOT_DIR__
+ExecStart=/usr/bin/node --env-file=.env src/index.js
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

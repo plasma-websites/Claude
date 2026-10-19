@@ -75,3 +75,25 @@ details, so delete old ones from `data/screenshots/` periodically.
 
 To change promos, edit `promos.json` and restart the bot. To change the address form, edit `fields` in
 `src/services.js`. Run `npm test` after making changes.
+
+## Hosting on Vultr
+1. Vultr → **Deploy +** → **Cloud Compute – Shared CPU**, any location near you, image **Ubuntu 24.04**,
+   the cheapest plan (1 vCPU / 1 GB is plenty). Deploy it, then copy its IP and root password.
+2. Connect: `ssh root@YOUR_SERVER_IP` (Windows: PowerShell or PuTTY).
+3. Get the code and run the setup:
+   ```
+   apt-get update && apt-get install -y git
+   git clone -b claude/exciting-curie-d07k1y https://github.com/plasma-websites/claude.git /opt/bot
+   cd /opt/bot/discord-bot
+   bash deploy/setup.sh     # first run creates .env and stops
+   nano .env                # paste your settings, Ctrl+O Enter Ctrl+X to save
+   bash deploy/setup.sh     # installs, registers commands, starts the bot
+   ```
+   The repo is private, so for `git clone` use your GitHub username and a personal access token
+   (GitHub → Settings → Developer settings → Personal access tokens) as the password.
+4. Useful commands:
+   - logs: `journalctl -u orders-bot -f`
+   - restart after changing `.env` or `promos.json`: `systemctl restart orders-bot`
+   - update to the latest code: `cd /opt/bot && git pull && cd discord-bot && bash deploy/setup.sh`
+
+Only run the bot in one place at a time — two copies on the same token will both answer every button.
