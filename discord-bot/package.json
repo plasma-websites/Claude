@@ -1,0 +1,16 @@
+{
+  "name": "orders-bot",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Discord bot: members submit Uber Eats / Uber ride / Deliveroo orders, orderers accept them in an orders channel",
+  "type": "module",
+  "scripts": {
+    "start": "node --env-file=.env src/index.js",
+    "deploy": "node --env-file=.env src/deploy-commands.js",
+    "test": "node --test"
+  },
+  "engines": { "node": ">=20.6" },
+  "dependencies": {
+    "discord.js": "^14.22.0"
+  }
+}
