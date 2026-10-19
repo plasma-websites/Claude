@@ -49,7 +49,8 @@ test('staff and ticket buttons follow status', () => {
 test('support views and commands serialize', () => {
   assert.equal(views.supportModal().toJSON().custom_id, 'support:modal');
   views.supportTicketMessage({ id: 1, userId: '1', reason: 'x', createdAt: new Date().toISOString() }).components[0].toJSON();
-  for (const c of commands) c.toJSON();
+  const names = commands.map((c) => c.toJSON().name);
+  assert.ok(names.includes('orderpanel') && names.includes('supportpanel'));
 });
 
 test('promo file validation', () => {

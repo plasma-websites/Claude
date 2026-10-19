@@ -25,10 +25,15 @@ async function handleCommand(interaction) {
   if (moderationCommands[name]) return moderationCommands[name](interaction);
 
   switch (name) {
-    case 'panel': {
-      const type = interaction.options.getString('type', true);
-      await interaction.channel.send(type === 'orders' ? ordersPanel() : supportPanel());
-      return interaction.reply(ephemeral('Panel posted.'));
+    case 'orderpanel':
+    case 'supportpanel': {
+      const channel = interaction.options.getChannel('channel') ?? interaction.channel;
+      try {
+        await channel.send(name === 'orderpanel' ? ordersPanel() : supportPanel());
+      } catch {
+        return interaction.reply(ephemeral(`I can't post in ${channel} — give me View Channel, Send Messages and Embed Links there.`));
+      }
+      return interaction.reply(ephemeral(`Panel posted in ${channel}.`));
     }
 
     case 'myorders': {

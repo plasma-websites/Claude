@@ -1,17 +1,17 @@
-import { PermissionFlagsBits as P, SlashCommandBuilder } from 'discord.js';
+import { ChannelType, PermissionFlagsBits as P, SlashCommandBuilder } from 'discord.js';
+
+const panelCommand = (name, description) =>
+  new SlashCommandBuilder()
+    .setName(name)
+    .setDescription(description)
+    .setDefaultMemberPermissions(P.ManageGuild)
+    .addChannelOption((o) =>
+      o.setName('channel').setDescription('Where to post it (default: this channel)').addChannelTypes(ChannelType.GuildText),
+    );
 
 export const commands = [
-  new SlashCommandBuilder()
-    .setName('panel')
-    .setDescription('Post a panel in this channel')
-    .setDefaultMemberPermissions(P.ManageGuild)
-    .addStringOption((o) =>
-      o
-        .setName('type')
-        .setDescription('Which panel?')
-        .setRequired(true)
-        .addChoices({ name: 'Submit orders', value: 'orders' }, { name: 'Support tickets', value: 'support' }),
-    ),
+  panelCommand('orderpanel', 'Post the submit-orders panel'),
+  panelCommand('supportpanel', 'Post the support tickets panel'),
   new SlashCommandBuilder().setName('myorders').setDescription('Show your recent orders'),
   new SlashCommandBuilder()
     .setName('cancel')
