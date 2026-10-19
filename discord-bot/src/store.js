@@ -1,16 +1,17 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const OPEN = new Set(['pending', 'accepted']);
+const OPEN = new Set(['pending', 'accepted', 'completed']);
+const now = () => new Date().toISOString();
 
-// Orders kept in memory and written to a JSON file after every change.
-// All state changes are synchronous, so two orderers clicking "Accept" at the
-// same moment can't both win: whichever interaction is handled first takes it.
-export class OrderStore {
+// Orders and support tickets kept in memory and written to a JSON file after
+// every change. All state changes are synchronous, so two staff clicking
+// "Accept" at the same moment can't both win.
+export class Store {
   constructor(file) {
     this.file = file;
-    this.data = { nextId: 1, orders: {} };
-    if (fs.existsSync(file)) this.data = JSON.parse(fs.readFileSync(file, 'utf8'));
+    this.data = { nextOrderId: 1, nextSupportId: 1, orders: {}, support: {} };
+    if (fs.existsSync(file)) Object.assign(this.data, JSON.parse(fs.readFileSync(file, 'utf8')));
   }
 
   save() {
@@ -20,86 +21,126 @@ export class OrderStore {
     fs.renameSync(tmp, this.file);
   }
 
-  get(id) {
+  // --- orders ---
+
+  getOrder(id) {
     return this.data.orders[id] ?? null;
+  }
+
+  orderByTicket(channelId) {
+    return Object.values(this.data.orders).find((o) => o.ticketChannelId === channelId) ?? null;
   }
 
   openOrdersFor(customerId) {
     return Object.values(this.data.orders).filter((o) => o.customerId === customerId && OPEN.has(o.status));
   }
 
-  recentFor(customerId, limit = 10) {
+  recentOrdersFor(customerId, limit = 10) {
     return Object.values(this.data.orders)
       .filter((o) => o.customerId === customerId)
       .sort((a, b) => b.id - a.id)
       .slice(0, limit);
   }
 
-  create({ service, customerId, details }) {
-    const id = this.data.nextId++;
+  // Completed orders whose ticket is due to auto-close.
+  dueForClose(at = Date.now()) {
+    return Object.values(this.data.orders).filter((o) => o.status === 'completed' && o.closeAt && Date.parse(o.closeAt) <= at);
+  }
+
+  createOrder({ service, promo, vc, customerId }) {
+    const id = this.data.nextOrderId++;
     const order = {
       id,
       service,
+      promo,
+      vc,
       customerId,
-      details,
+      screenshot: null,
       status: 'pending',
       ordererId: null,
-      channelId: null,
-      messageId: null,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      staffChannelId: null,
+      staffMessageId: null,
+      ticketChannelId: null,
+      ticketMessageId: null,
+      closeAt: null,
+      createdAt: now(),
+      updatedAt: now(),
     };
     this.data.orders[id] = order;
     this.save();
     return order;
   }
 
-  setMessage(id, channelId, messageId) {
-    const order = this.get(id);
+  updateOrder(id, changes) {
+    const order = this.getOrder(id);
     if (!order) return null;
-    Object.assign(order, { channelId, messageId });
+    Object.assign(order, changes, { updatedAt: now() });
     this.save();
     return order;
   }
 
   #transition(id, from, changes) {
-    const order = this.get(id);
+    const order = this.getOrder(id);
     if (!order) return { error: 'That order no longer exists.' };
     if (!from.includes(order.status)) return { error: `Order #${id} is already ${order.status}.`, order };
-    Object.assign(order, changes, { updatedAt: new Date().toISOString() });
-    this.save();
-    return { order };
+    return { order: this.updateOrder(id, changes) };
   }
 
   accept(id, ordererId) {
-    const order = this.get(id);
-    if (order && order.customerId === ordererId) return { error: 'You can\'t accept your own order.', order };
+    if (this.getOrder(id)?.customerId === ordererId) return { error: 'You can\'t accept your own order.' };
     return this.#transition(id, ['pending'], { status: 'accepted', ordererId });
   }
 
-  // Orderer hands the order back to the queue.
-  release(id, actorId, isAdmin = false) {
-    const order = this.get(id);
-    if (order && order.ordererId !== actorId && !isAdmin) return { error: 'Only the orderer who accepted this can release it.', order };
+  // Undo an accept, e.g. when the ticket channel couldn't be created.
+  unaccept(id) {
     return this.#transition(id, ['accepted'], { status: 'pending', ordererId: null });
   }
 
-  complete(id, actorId, isAdmin = false) {
-    const order = this.get(id);
-    if (order && order.ordererId !== actorId && !isAdmin) return { error: 'Only the orderer who accepted this can complete it.', order };
-    return this.#transition(id, ['accepted'], { status: 'completed' });
+  decline(id) {
+    return this.#transition(id, ['pending'], { status: 'declined' });
   }
 
-  // Customers can cancel until someone picks the order up; after that only the
-  // orderer who accepted it (or an admin) can.
-  cancel(id, actorId, isAdmin = false) {
-    const order = this.get(id);
-    const isCustomer = order?.customerId === actorId;
-    const isOrderer = order?.ordererId === actorId;
-    if (order && !isCustomer && !isOrderer && !isAdmin) return { error: 'You can only cancel your own orders.', order };
-    if (order?.status === 'accepted' && !isOrderer && !isAdmin) {
-      return { error: `Order #${id} has already been accepted — message your orderer to cancel it.`, order };
+  complete(id, closeAt) {
+    return this.#transition(id, ['accepted'], { status: 'completed', closeAt: closeAt.toISOString() });
+  }
+
+  close(id) {
+    return this.#transition(id, ['accepted', 'completed'], { status: 'closed', closeAt: null });
+  }
+
+  // Customers can cancel only while nobody has accepted the order yet.
+  cancel(id, actorId) {
+    const order = this.getOrder(id);
+    if (order && order.customerId !== actorId) return { error: 'You can only cancel your own orders.' };
+    if (order && order.status !== 'pending') {
+      return { error: `Order #${id} is ${order.status}, so it can't be cancelled here — ask in your ticket.` };
     }
-    return this.#transition(id, ['pending', 'accepted'], { status: 'cancelled' });
+    return this.#transition(id, ['pending'], { status: 'cancelled' });
+  }
+
+  // --- support tickets ---
+
+  openSupportFor(userId) {
+    return Object.values(this.data.support).find((t) => t.userId === userId && t.status === 'open') ?? null;
+  }
+
+  supportByChannel(channelId) {
+    return Object.values(this.data.support).find((t) => t.channelId === channelId) ?? null;
+  }
+
+  createSupport({ userId, reason }) {
+    const id = this.data.nextSupportId++;
+    const ticket = { id, userId, reason, channelId: null, status: 'open', createdAt: now() };
+    this.data.support[id] = ticket;
+    this.save();
+    return ticket;
+  }
+
+  updateSupport(id, changes) {
+    const ticket = this.data.support[id];
+    if (!ticket) return null;
+    Object.assign(ticket, changes);
+    this.save();
+    return ticket;
   }
 }
