@@ -18,7 +18,7 @@ function randomId(taken) {
 export class Store {
   constructor(file) {
     this.file = file;
-    this.data = { orders: {}, support: {}, vouches: [], meta: {} };
+    this.data = { orders: {}, support: {}, vouches: [], payments: {}, staff: {}, meta: {} };
     if (fs.existsSync(file)) Object.assign(this.data, JSON.parse(fs.readFileSync(file, 'utf8')));
   }
 
@@ -100,6 +100,15 @@ export class Store {
     return this.#transition(id, ['pending'], { status: 'accepted', ordererId });
   }
 
+  // The accepting orderer hands the order back; it goes back to the queue but
+  // keeps its ticket so the customer doesn't have to start again.
+  forfeit(id, actorId, isAdmin = false) {
+    const order = this.getOrder(id);
+    if (order && order.ordererId !== actorId && !isAdmin) return { error: 'Only the orderer who accepted this order can forfeit it.' };
+    const forfeitedBy = [...(order?.forfeitedBy ?? []), order?.ordererId];
+    return this.#transition(id, ['accepted'], { status: 'pending', ordererId: null, forfeitedBy });
+  }
+
   // Undo an accept, e.g. when the ticket channel couldn't be created.
   unaccept(id) {
     return this.#transition(id, ['accepted'], { status: 'pending', ordererId: null });
@@ -153,6 +162,57 @@ export class Store {
   setMeta(key, value) {
     this.data.meta[key] = value;
     this.save();
+  }
+
+  // --- staff: availability & payment details ---
+
+  #staff(userId) {
+    return (this.data.staff[userId] ??= { online: [], payments: {} });
+  }
+
+  setOnline(userId, services) {
+    Object.assign(this.#staff(userId), { online: services, onlineSince: services.length ? now() : null });
+    this.save();
+  }
+
+  getStaff(userId) {
+    return this.data.staff[userId] ?? { online: [], payments: {} };
+  }
+
+  // { serviceKey: [userId, …] } for everyone currently online.
+  onlineByService() {
+    const result = {};
+    for (const [userId, s] of Object.entries(this.data.staff)) {
+      for (const service of s.online ?? []) (result[service] ??= []).push(userId);
+    }
+    return result;
+  }
+
+  setPaymentDetails(userId, payments) {
+    this.#staff(userId).payments = payments;
+    this.save();
+  }
+
+  // --- payment requests (/paypal, /rev, /starling, /crypto) ---
+
+  createPayment({ method, amount, ordererId, customerId, orderId, channelId }) {
+    const id = randomId(this.data.payments);
+    const payment = { id, method, amount, ordererId, customerId, orderId, channelId, status: 'due', messageId: null, createdAt: now() };
+    this.data.payments[id] = payment;
+    this.save();
+    return payment;
+  }
+
+  getPayment(id) {
+    return this.data.payments[id] ?? null;
+  }
+
+  updatePayment(id, changes) {
+    const payment = this.getPayment(id);
+    if (!payment) return null;
+    Object.assign(payment, changes, { updatedAt: now() });
+    this.save();
+    return payment;
   }
 
   // --- support tickets ---

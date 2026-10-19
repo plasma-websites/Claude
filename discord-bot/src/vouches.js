@@ -1,5 +1,5 @@
 import { ActionRowBuilder, MessageFlags, PermissionFlagsBits } from 'discord.js';
-import { ephemeral } from './util.js';
+import { COLORS, ephemeral, say } from './util.js';
 import { starPicker, vouchEmbed, vouchModal, vouchSticky } from './views.js';
 
 // Controlled vouches: only customers with a completed order can vouch, once per
@@ -30,7 +30,7 @@ export function createVouchHandlers({ client, config, store }) {
       );
     }
     return interaction.reply({
-      content: `⭐ Vouching for your order **#${order.id}** — how many stars?`,
+      ...say(`⭐ Vouching for your order **#${order.id}** — how many stars?`, {}, { color: COLORS.warning }),
       components: [new ActionRowBuilder().addComponents(starPicker(order.id))],
       flags: MessageFlags.Ephemeral,
     });
@@ -44,14 +44,14 @@ export function createVouchHandlers({ client, config, store }) {
     const stars = Number(starCount);
     if (!(stars >= 1 && stars <= 5)) return interaction.reply(ephemeral('Pick between 1 and 5 stars.'));
     const result = store.addVouch({ orderId, userId: interaction.user.id, stars, message: interaction.fields.getTextInputValue('message') });
-    if (result.error) return interaction.update({ content: result.error, components: [] });
+    if (result.error) return interaction.update(say(result.error, { components: [] }, { color: COLORS.danger }));
     try {
       const channel = await client.channels.fetch(config.vouchChannelId);
       await channel.send({ embeds: [vouchEmbed(result.vouch, result.order)], allowedMentions: { parse: [] } });
     } catch (err) {
       console.error('Could not post vouch:', err.message);
     }
-    await interaction.update({ content: `💛 Thanks for your vouch! It's posted in <#${config.vouchChannelId}>.`, components: [] });
+    await interaction.update(say(`💛 Thanks for your vouch! It's posted in <#${config.vouchChannelId}>.`, { components: [] }, { color: COLORS.success }));
     await refreshSticky();
   }
 
@@ -62,7 +62,7 @@ export function createVouchHandlers({ client, config, store }) {
     if (message.member?.permissions.has(PermissionFlagsBits.ManageMessages)) return refreshSticky();
     await message.delete().catch(() => {});
     message.author
-      .send(`⭐ Vouches have to go through the **Leave a vouch** button in <#${config.vouchChannelId}> — your message was removed.`)
+      .send(say(`⭐ Vouches have to go through the **Leave a vouch** button in <#${config.vouchChannelId}> — your message was removed.`, {}, { color: COLORS.warning }))
       .catch(() => {});
   }
 

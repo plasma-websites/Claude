@@ -1,6 +1,16 @@
-import { ChannelType, MessageFlags, OverwriteType, PermissionFlagsBits as P } from 'discord.js';
+import { ChannelType, EmbedBuilder, MessageFlags, OverwriteType, PermissionFlagsBits as P } from 'discord.js';
 
-export const ephemeral = (content, extra = {}) => ({ content, flags: MessageFlags.Ephemeral, ...extra });
+export const COLORS = { brand: 0x5865f2, success: 0x57f287, warning: 0xfee75c, danger: 0xed4245, info: 0x5865f2 };
+
+// The bot never sends bare text: every message is an embed. `panel` builds a
+// small one from a line of text; `say`/`ephemeral` wrap it into a message.
+export function panel(text, { title, color = COLORS.brand } = {}) {
+  const embed = new EmbedBuilder().setColor(color).setDescription(text);
+  return title ? embed.setTitle(title) : embed;
+}
+
+export const say = (text, extra = {}, style = {}) => ({ embeds: [panel(text, style)], ...extra });
+export const ephemeral = (text, extra = {}, style = {}) => ({ ...say(text, extra, style), flags: MessageFlags.Ephemeral });
 
 export function hasRole(member, roleId) {
   const roles = member?.roles;
@@ -11,7 +21,8 @@ export function hasRole(member, roleId) {
 export const isAdmin = (interaction) => Boolean(interaction.memberPermissions?.has(P.ManageGuild));
 
 export function dm(client, userId, payload) {
-  return client.users.send(userId, payload).then(() => true, () => false); // user may have DMs closed
+  const message = typeof payload === 'string' ? say(payload) : payload;
+  return client.users.send(userId, message).then(() => true, () => false); // user may have DMs closed
 }
 
 export async function editMessage(client, channelId, messageId, payload) {

@@ -96,3 +96,40 @@ test('vouches: only finished orders, once each, by the customer', () => {
   store.setMeta('vouchStickyId', 'm1');
   assert.equal(new Store(store.file).getMeta('vouchStickyId'), 'm1');
 });
+
+test('forfeit hands an accepted order back to the queue', () => {
+  const store = tempStore();
+  const { id } = newOrder(store);
+  store.accept(id, 'staff1');
+  store.updateOrder(id, { ticketChannelId: 'chan' });
+  assert.match(store.forfeit(id, 'staff2').error, /Only the orderer/);
+  const { order } = store.forfeit(id, 'staff1');
+  assert.equal(order.status, 'pending');
+  assert.equal(order.ordererId, null);
+  assert.deepEqual(order.forfeitedBy, ['staff1']);
+  assert.equal(order.ticketChannelId, 'chan', 'keeps its ticket');
+  assert.equal(store.accept(id, 'staff2').order.ordererId, 'staff2');
+  assert.deepEqual(store.forfeit(id, 'admin', true).order.forfeitedBy, ['staff1', 'staff2']);
+  assert.ok(store.forfeit(id, 'staff1').error, 'cannot forfeit a pending order');
+});
+
+test('staff availability and payment details', () => {
+  const store = tempStore();
+  store.setOnline('a', ['ubereats', 'deliveroo']);
+  store.setOnline('b', ['ubereats']);
+  assert.deepEqual(store.onlineByService(), { ubereats: ['a', 'b'], deliveroo: ['a'] });
+  store.setOnline('a', []);
+  assert.deepEqual(store.onlineByService(), { ubereats: ['b'] });
+  store.setPaymentDetails('b', { paypal: 'https://paypal.me/b' });
+  const reloaded = new Store(store.file);
+  assert.equal(reloaded.getStaff('b').payments.paypal, 'https://paypal.me/b');
+  assert.deepEqual(reloaded.getStaff('nobody'), { online: [], payments: {} });
+});
+
+test('payment requests', () => {
+  const store = tempStore();
+  const p = store.createPayment({ method: 'revolut', amount: 12.5, ordererId: 's', customerId: 'c', orderId: 1, channelId: 'ch' });
+  assert.equal(p.status, 'due');
+  assert.equal(store.updatePayment(p.id, { status: 'marked_paid' }).status, 'marked_paid');
+  assert.equal(new Store(store.file).getPayment(p.id).amount, 12.5);
+});

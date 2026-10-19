@@ -51,7 +51,8 @@ test('staff and ticket buttons follow status', () => {
   assert.deepEqual(ids(views.staffButtons(order, 'g')), ['order:accept:483920']);
   const accepted = { ...order, status: 'accepted', ordererId: '2', ticketChannelId: 'c' };
   assert.deepEqual(ids(views.staffButtons(accepted, 'g')), ['https://discord.com/channels/g/c']);
-  assert.deepEqual(ids(views.ticketButtons(accepted)), ['order:complete:483920', 'order:close:483920', 'order:delete:483920']);
+  assert.deepEqual(ids(views.ticketButtons(accepted)), ['order:complete:483920', 'order:forfeit:483920', 'order:close:483920', 'order:delete:483920']);
+  assert.deepEqual(ids(views.ticketButtons({ ...accepted, status: 'pending', ordererId: null })), ['order:delete:483920'], 'forfeited ticket waits for a new orderer');
   const completed = { ...accepted, status: 'completed', closeAt: new Date().toISOString() };
   assert.deepEqual(ids(views.ticketButtons(completed)), ['order:close:483920', 'order:delete:483920']);
   const closed = { ...completed, status: 'closed', closeAt: null };
@@ -134,4 +135,52 @@ test('why food hub panel and embeds', async () => {
   const plug = views.whyOverFoodplugEmbed(WHY_OVER_FOODPLUG).toJSON();
   assert.ok(plug.description.includes('COUGH COUGH BEN') && plug.description.includes('Built for the community'));
   assert.ok(commands.some((c) => c.toJSON().name === 'whyfoodhub'));
+});
+
+test('order panel shows fees and who is online', async () => {
+  const { money } = await import('../src/services.js');
+  assert.equal(money(1.5), '£1.50');
+  const text = views.ordersPanel(promos, { ubereats: ['111', '222'] }).embeds[0].toJSON().description;
+  assert.ok(text.includes('£1.50') && text.includes('£2.50') && text.includes('£2.00'));
+  assert.ok(text.includes('🟢 **Online:** <@111>, <@222>'));
+  assert.ok(text.includes('No orderers online'));
+  const options = views.ordersPanel(promos, { ubereats: ['111'] }).components[0].toJSON().components[0].options;
+  assert.ok(options.find((o) => o.value === 'ubereats').description.startsWith('Fee £2.50 · 🟢 1 online'));
+  assert.ok(options.every((o) => o.description.length <= 100));
+  const picker = views.promoPicker('justeat', promos.justeat, []).embeds[0].toJSON().description;
+  assert.ok(picker.includes('£2.00') && picker.includes('Nobody is online'));
+});
+
+test('staff panel, payment details and payment panel', async () => {
+  const { PAYMENT_METHODS } = await import('../src/services.js');
+  const panelJson = views.staffPanel();
+  assert.equal(panelJson.components[0].toJSON().components[0].custom_id, 'staff:online');
+  assert.deepEqual(ids([panelJson.components[1]]), ['staff:offline', 'staff:payments', 'staff:me']);
+  const modal = views.paymentDetailsModal({ paypal: 'https://paypal.me/x' }).toJSON();
+  assert.equal(modal.components.length, 4);
+  assert.equal(modal.components[0].components[0].value, 'https://paypal.me/x');
+
+  assert.ok(PAYMENT_METHODS.paypal.pattern.test('https://paypal.me/sam'));
+  assert.ok(!PAYMENT_METHODS.paypal.pattern.test('http://evil.com'));
+  assert.ok(PAYMENT_METHODS.revolut.pattern.test('https://revolut.me/sam'));
+  assert.ok(PAYMENT_METHODS.ltc.pattern.test('ltc1qg82tbbqk5c6lqyq0n2x5f8yxwq3vv9sfm9a3kr'));
+  assert.ok(!PAYMENT_METHODS.ltc.pattern.test('not an address'));
+
+  const payment = { id: 123456, method: 'revolut', amount: 12.5, ordererId: 's', customerId: 'c', orderId: 483920, status: 'due', createdAt: new Date().toISOString() };
+  const embed = views.paymentEmbed(payment, 'https://revolut.me/sam').toJSON();
+  assert.ok(embed.description.includes('<@c> your payment is now due') && embed.description.includes('£12.50') && embed.description.includes('https://revolut.me/sam'));
+  assert.deepEqual(ids(views.paymentButtons(payment, 'https://revolut.me/sam')), ['pay:paid:123456', 'https://revolut.me/sam']);
+  assert.deepEqual(ids(views.paymentButtons({ ...payment, status: 'marked_paid' })), ['pay:confirm:123456', 'pay:notreceived:123456']);
+  assert.deepEqual(views.paymentButtons({ ...payment, status: 'confirmed' }), []);
+  const crypto = views.paymentEmbed({ ...payment, method: 'ltc' }, 'ltc1qxyz').toJSON().description;
+  assert.ok(crypto.includes('worth of **Litecoin (LTC)**') && crypto.includes('```ltc1qxyz```'));
+  const names = commands.map((c) => c.toJSON().name);
+  for (const n of ['staffpanel', 'paypal', 'rev', 'starling', 'crypto']) assert.ok(names.includes(n), n);
+  assert.equal(commands.find((c) => c.toJSON().name === 'rev').toJSON().options[0].name, 'amount');
+});
+
+test('AI views', () => {
+  assert.deepEqual(ids(views.aiButtons()), ['ai:ask', 'ai:human']);
+  assert.equal(views.aiQuestionModal().toJSON().custom_id, 'ai:question');
+  assert.equal(views.aiAnswerEmbed('hi', 'q?').toJSON().author.name, '❓ q?');
 });

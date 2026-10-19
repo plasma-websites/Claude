@@ -8,7 +8,7 @@ import {
   TextInputBuilder,
   TextInputStyle,
 } from 'discord.js';
-import { SERVICES, STATUS, SUPPORT_STATUS } from './services.js';
+import { PAYMENT_METHODS, SERVICES, STATUS, SUPPORT_STATUS, money } from './services.js';
 
 const BRAND = 0x5865f2;
 const DIVIDER = '━━━━━━━━━━━━━━━━━━━━━━━━';
@@ -28,10 +28,19 @@ export const supportTicketName = (ticket) => `${SUPPORT_STATUS[ticket.status].em
 
 // --- order flow (submit-orders channel) ---
 
-export function ordersPanel(promos) {
+const onlineLine = (ids = []) =>
+  ids.length ? `└ 🟢 **Online:** ${ids.map((id) => `<@${id}>`).join(', ')}` : '└ 🔴 *No orderers online right now*';
+
+// `online` is { serviceKey: [userId, …] } from the staff panel.
+export function ordersPanel(promos, online = {}) {
   const menu = Object.entries(SERVICES)
-    .map(([key, s]) => `${s.emoji} **${s.label}** — ${promos[key].map((p) => `\`${p}\``).join(' • ')}`)
-    .join('\n');
+    .map(([key, s]) =>
+      [
+        `${s.emoji} **${s.label}** — ${promos[key].map((p) => `\`${p}\``).join(' • ')} · 💷 Fee **${money(s.fee)}**`,
+        onlineLine(online[key]),
+      ].join('\n'),
+    )
+    .join('\n\n');
   const embed = new EmbedBuilder()
     .setTitle('🍽️  PLACE YOUR ORDER  🍽️')
     .setColor(BRAND)
@@ -39,7 +48,7 @@ export function ordersPanel(promos) {
       [
         '> Food or a ride, sorted. Pick a company below and our team will take it from there. 🚀',
         DIVIDER,
-        '### 🏷️ Available promos',
+        '### 🏷️ Promos, fees & who\'s online',
         menu,
         DIVIDER,
         '### 📋 How it works',
@@ -54,7 +63,8 @@ export function ordersPanel(promos) {
         '📦 Check your orders any time with `/myorders`.',
       ].join('\n'),
     )
-    .setFooter({ text: '🔒 Your details are only shared with staff in your private ticket' });
+    .setFooter({ text: '🔒 Your details are only shared with staff in your private ticket • 🟢 Online list updates live' })
+    .setTimestamp();
   const select = new StringSelectMenuBuilder()
     .setCustomId('order:service')
     .setPlaceholder('🛒 Choose a company to start your order…')
@@ -63,25 +73,38 @@ export function ordersPanel(promos) {
         label: s.label,
         value,
         emoji: s.emoji,
-        description: `Promos: ${promos[value].join(', ')}`.slice(0, 100),
+        description: `Fee ${money(s.fee)} · ${online[value]?.length ? `🟢 ${online[value].length} online` : '🔴 nobody online'} · ${promos[value].join(', ')}`.slice(0, 100),
       })),
     );
   return { embeds: [embed], components: [row(select)] };
 }
 
-export function promoPicker(serviceKey, promos) {
+export function promoPicker(serviceKey, promos, onlineIds = []) {
   const service = SERVICES[serviceKey];
   const menu = new StringSelectMenuBuilder()
     .setCustomId(`order:promo:${serviceKey}`)
     .setPlaceholder('🏷️ Select your promo…')
     .addOptions(promos.map((label, i) => ({ label, value: String(i), emoji: '🏷️' })));
-  return { content: `${service.emoji} **${service.label}** selected!\n\n**Step 2/5** — 🏷️ Which promo do you want?`, components: [row(menu)] };
+  const embed = new EmbedBuilder()
+    .setColor(service.color)
+    .setTitle(`${service.emoji} ${service.label} selected!`)
+    .setDescription(
+      [
+        `💷 Service fee: **${money(service.fee)}**`,
+        onlineIds.length
+          ? `🟢 Online now: ${onlineIds.map((id) => `<@${id}>`).join(', ')}`
+          : '🔴 **Nobody is online for this service right now** — you can still order and it\'ll be picked up as soon as someone is.',
+        DIVIDER,
+        '**Step 2/5** — 🏷️ Which promo do you want?',
+      ].join('\n'),
+    );
+  return { embeds: [embed], components: [row(menu)] };
 }
 
 export function vcPicker(serviceKey, promoValue) {
   const base = `order:vc:${serviceKey}:${promoValue}`;
   return {
-    content: '**Step 3/5** — 🎙️ **VC?**',
+    embeds: [new EmbedBuilder().setColor(BRAND).setDescription('**Step 3/5** — 🎙️ **VC?**')],
     components: [row(button(`${base}:yes`, 'Yes', ButtonStyle.Success, '✅'), button(`${base}:no`, 'No', ButtonStyle.Danger, '✖️'))],
   };
 }
@@ -115,11 +138,15 @@ export function orderEmbed(order) {
       { name: '🏢 Company', value: service.label, inline: true },
       { name: '🏷️ Promo', value: order.promo ?? 'None', inline: true },
       { name: '🎙️ VC', value: order.vc ? '✅ Yes' : '✖️ No', inline: true },
+      { name: '💷 Service fee', value: money(SERVICES[order.service].fee), inline: true },
       { name: '🕒 Placed', value: timestamp(order.createdAt), inline: true },
     )
     .setFooter({ text: `Order #${order.id}${order.screenshot ? ' • 📸 screenshot attached' : ''}` })
     .setTimestamp(new Date(order.createdAt));
   if (order.ordererId) embed.addFields({ name: '🧑‍🍳 Staff', value: `<@${order.ordererId}>`, inline: true });
+  if (order.forfeitedBy?.length) {
+    embed.addFields({ name: '🔁 Forfeited by', value: order.forfeitedBy.filter(Boolean).map((id) => `<@${id}>`).join(', ') || '—', inline: true });
+  }
   for (const f of service.fields) {
     const value = order.details?.[f.id]?.trim();
     if (value) embed.addFields({ name: `${f.id === 'notes' ? '📝' : '📍'} ${f.label.replace(' (optional)', '')}`, value });
@@ -146,11 +173,13 @@ export function ticketButtons(order) {
     return [
       row(
         button(`order:complete:${order.id}`, 'Complete order', ButtonStyle.Success, '✅'),
+        button(`order:forfeit:${order.id}`, 'Forfeit', ButtonStyle.Secondary, '🔁'),
         button(`order:close:${order.id}`, 'Close ticket', ButtonStyle.Danger, '🔒'),
         del,
       ),
     ];
   }
+  if (order.status === 'pending') return [row(del)]; // forfeited, waiting for a new orderer
   if (order.status === 'completed') return [row(button(`order:close:${order.id}`, 'Close now', ButtonStyle.Danger, '🔒'), del)];
   if (order.status === 'closed') return [row(del)];
   return [];
@@ -158,11 +187,16 @@ export function ticketButtons(order) {
 
 export function ticketWelcome(order) {
   const service = SERVICES[order.service];
-  return [
-    `👋 Hey <@${order.customerId}>, welcome to your ticket!`,
-    `🧑‍🍳 <@${order.ordererId}> has accepted your **${service.emoji} ${service.label}** order **#${order.id}** and will look after you here.`,
-    '💬 Feel free to ask any questions in this channel.',
-  ].join('\n');
+  return new EmbedBuilder()
+    .setColor(service.color)
+    .setTitle('👋 Welcome to your ticket!')
+    .setDescription(
+      [
+        `🧑‍🍳 <@${order.ordererId}> has accepted your **${service.emoji} ${service.label}** order **#${order.id}** and will look after you here.`,
+        `💷 Service fee: **${money(service.fee)}**`,
+        '💬 Feel free to ask any questions in this channel.',
+      ].join('\n'),
+    );
 }
 
 // --- support tickets ---
@@ -418,4 +452,165 @@ export function whyFoodHubEmbed(why) {
 
 export function whyOverFoodplugEmbed(why) {
   return new EmbedBuilder().setTitle(why.title).setColor(0xf1c40f).setDescription(why.paragraphs.join('\n\n'));
+}
+
+// --- staff panel (availability & payment details) ---
+
+export function staffPanel() {
+  const embed = new EmbedBuilder()
+    .setTitle('🧑‍🍳  ORDERER CONTROL PANEL  🧑‍🍳')
+    .setColor(0x2ecc71)
+    .setDescription(
+      [
+        '> Everything you need as an orderer, in one place. 💪',
+        DIVIDER,
+        '### 🟢 Going online',
+        'Pick the services you\'re taking orders for from the menu below. Customers see who\'s online on the order panel, and new orders for those services ping you.',
+        '🔴 Hit **Go offline** when you\'re done.',
+        DIVIDER,
+        '### 💳 Getting paid',
+        'Save your **PayPal**, **Revolut**, **Starling** and **LTC** details with **Payment details**. Then in a ticket use:',
+        '`/paypal amount:` • `/rev amount:` • `/starling amount:` • `/crypto amount:`',
+        'The customer gets a payment panel with an **I\'ve paid** button, and you confirm when it lands. ✅',
+        DIVIDER,
+        '### 🔁 Can\'t finish an order?',
+        'Press **Forfeit** in the ticket. It goes back to the queue and staff are pinged to pick it up.',
+      ].join('\n'),
+    );
+  const select = new StringSelectMenuBuilder()
+    .setCustomId('staff:online')
+    .setPlaceholder('🟢 Select the services you\'re online for…')
+    .setMinValues(1)
+    .setMaxValues(Object.keys(SERVICES).length)
+    .addOptions(Object.entries(SERVICES).map(([value, s]) => ({ label: s.label, value, emoji: s.emoji })));
+  return {
+    embeds: [embed],
+    components: [
+      row(select),
+      row(
+        button('staff:offline', 'Go offline', ButtonStyle.Danger, '🔴'),
+        button('staff:payments', 'Payment details', ButtonStyle.Primary, '💳'),
+        button('staff:me', 'My status', ButtonStyle.Secondary, '👀'),
+      ),
+    ],
+  };
+}
+
+export function paymentDetailsModal(current = {}) {
+  const modal = new ModalBuilder().setCustomId('staff:paymentsave').setTitle('💳 Your payment details');
+  for (const [key, m] of Object.entries(PAYMENT_METHODS)) {
+    const input = new TextInputBuilder()
+      .setCustomId(key)
+      .setLabel(`${m.label} ${m.kind === 'link' ? 'link' : 'address'} (optional)`)
+      .setStyle(TextInputStyle.Short)
+      .setRequired(false)
+      .setMaxLength(200)
+      .setPlaceholder(m.example);
+    if (current[key]) input.setValue(current[key]);
+    modal.addComponents(row(input));
+  }
+  return modal;
+}
+
+export function staffStatusEmbed(staff) {
+  const online = staff.online?.length
+    ? staff.online.map((k) => `${SERVICES[k].emoji} ${SERVICES[k].label}`).join(', ')
+    : '🔴 Offline';
+  const details = Object.entries(PAYMENT_METHODS)
+    .map(([key, m]) => `${m.emoji} **${m.label}:** ${staff.payments?.[key] ? `\`${staff.payments[key]}\`` : '*not set*'}`)
+    .join('\n');
+  return new EmbedBuilder()
+    .setTitle('👀 Your orderer status')
+    .setColor(0x2ecc71)
+    .addFields({ name: '🟢 Online for', value: online }, { name: '💳 Payment details', value: details });
+}
+
+// --- payment requests ---
+
+const PAYMENT_STATUS = {
+  due: { label: 'Payment due', emoji: '🟡', color: 0xfee75c },
+  marked_paid: { label: 'Customer says paid — waiting for confirmation', emoji: '🔵', color: 0x5865f2 },
+  confirmed: { label: 'Payment confirmed', emoji: '🟢', color: 0x57f287 },
+};
+
+export function paymentEmbed(payment, destination) {
+  const m = PAYMENT_METHODS[payment.method];
+  const status = PAYMENT_STATUS[payment.status];
+  const who = payment.customerId ? `<@${payment.customerId}> your` : 'Your';
+  const where =
+    m.kind === 'address'
+      ? `Send **${money(payment.amount)}** worth of **${m.label}** to this address:\n\`\`\`${destination}\`\`\``
+      : `Please pay **${money(payment.amount)}** via **${m.label}** here:\n👉 ${destination}`;
+  const lines = [
+    `💷 ${who} payment is now due.`,
+    '',
+    where,
+    DIVIDER,
+    `${status.emoji} **${status.label}**`,
+  ];
+  if (payment.status === 'due') lines.push('✅ Once you\'ve paid, click **I\'ve paid** below.');
+  return new EmbedBuilder()
+    .setTitle(`${m.emoji}  PAYMENT DUE — ${money(payment.amount)}  ${m.emoji}`)
+    .setColor(status.color)
+    .setDescription(lines.join('\n'))
+    .addFields(
+      { name: '🧑‍🍳 Pay to', value: `<@${payment.ordererId}>`, inline: true },
+      { name: '💳 Method', value: m.label, inline: true },
+      ...(payment.orderId ? [{ name: '🧾 Order', value: `#${payment.orderId}`, inline: true }] : []),
+    )
+    .setFooter({ text: `Payment ID ${payment.id}` })
+    .setTimestamp(new Date(payment.createdAt));
+}
+
+export function paymentButtons(payment, destination) {
+  const m = PAYMENT_METHODS[payment.method];
+  const open = m.kind === 'link' && destination ? [linkButton(destination, `Open ${m.label}`, m.emoji)] : [];
+  if (payment.status === 'due') return [row(button(`pay:paid:${payment.id}`, 'I\'ve paid', ButtonStyle.Success, '✅'), ...open)];
+  if (payment.status === 'marked_paid') {
+    return [
+      row(
+        button(`pay:confirm:${payment.id}`, 'Confirm received', ButtonStyle.Success, '💰'),
+        button(`pay:notreceived:${payment.id}`, 'Not received', ButtonStyle.Danger, '❌'),
+      ),
+    ];
+  }
+  return [];
+}
+
+// --- Food Hub AI (support tickets) ---
+
+export function aiAnswerEmbed(answer, question) {
+  const embed = new EmbedBuilder()
+    .setTitle('🤖 Food Hub AI Assistant')
+    .setColor(0x9b59b6)
+    .setDescription(answer.slice(0, 4000))
+    .setFooter({ text: '🤖 AI answers can be wrong • Press "Talk to a human" any time for staff' })
+    .setTimestamp();
+  if (question) embed.setAuthor({ name: `❓ ${question.slice(0, 250)}` });
+  return embed;
+}
+
+export function aiButtons() {
+  return [
+    row(
+      button('ai:ask', 'Ask a follow-up', ButtonStyle.Primary, '💬'),
+      button('ai:human', 'Talk to a human', ButtonStyle.Secondary, '🙋'),
+    ),
+  ];
+}
+
+export function aiQuestionModal() {
+  return new ModalBuilder()
+    .setCustomId('ai:question')
+    .setTitle('💬 Ask Food Hub AI')
+    .addComponents(
+      row(
+        new TextInputBuilder()
+          .setCustomId('question')
+          .setLabel('Your question')
+          .setStyle(TextInputStyle.Paragraph)
+          .setRequired(true)
+          .setMaxLength(1000),
+      ),
+    );
 }

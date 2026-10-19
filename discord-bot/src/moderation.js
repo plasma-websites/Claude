@@ -1,5 +1,5 @@
 import { MessageFlags } from 'discord.js';
-import { ephemeral } from './util.js';
+import { COLORS, ephemeral, say } from './util.js';
 
 const UNITS = { s: 1e3, m: 60e3, h: 3600e3, d: 86400e3, w: 604800e3 };
 const MAX_TIMEOUT_MS = 28 * UNITS.d; // Discord's limit
@@ -33,7 +33,9 @@ async function purge(interaction) {
   const deleted = await interaction.channel.bulkDelete([...messages.values()].slice(0, amount), true);
   const skipped = Math.min(amount, messages.size) - deleted.size;
   return interaction.editReply(
-    `🧹 Deleted ${deleted.size} message(s)${user ? ` from ${user}` : ''}.` + (skipped > 0 ? ` ${skipped} were older than 14 days and can't be bulk deleted.` : ''),
+    say(`🧹 Deleted **${deleted.size}** message(s)${user ? ` from ${user}` : ''}.` + (skipped > 0 ? `\n⚠️ ${skipped} were older than 14 days and can't be bulk deleted.` : ''), {}, {
+      color: COLORS.success,
+    }),
   );
 }
 
@@ -46,7 +48,7 @@ async function mute(interaction) {
   if (error) return interaction.reply(ephemeral(error));
   const reason = interaction.options.getString('reason') ?? 'No reason given';
   await member.timeout(ms, `${reason} — by ${interaction.user.tag}`);
-  return interaction.reply(`🔇 ${member} muted until <t:${Math.floor((Date.now() + ms) / 1000)}:f>. Reason: ${reason}`);
+  return interaction.reply(say(`🔇 ${member} muted until <t:${Math.floor((Date.now() + ms) / 1000)}:f>.\n📝 **Reason:** ${reason}`, {}, { title: '🔇 Member muted', color: COLORS.warning }));
 }
 
 async function unmute(interaction) {
@@ -55,7 +57,7 @@ async function unmute(interaction) {
   const error = hierarchyError(interaction, member) ?? (member.moderatable ? null : 'I can\'t unmute that member.');
   if (error) return interaction.reply(ephemeral(error));
   await member.timeout(null, `Unmuted by ${interaction.user.tag}`);
-  return interaction.reply(`🔊 ${member} unmuted.`);
+  return interaction.reply(say(`🔊 ${member} has been unmuted.`, {}, { title: '🔊 Member unmuted', color: COLORS.success }));
 }
 
 async function ban(interaction) {
@@ -66,7 +68,7 @@ async function ban(interaction) {
   const reason = interaction.options.getString('reason') ?? 'No reason given';
   const days = interaction.options.getInteger('delete_days') ?? 0;
   await interaction.guild.members.ban(user, { reason: `${reason} — by ${interaction.user.tag}`, deleteMessageSeconds: days * 86400 });
-  return interaction.reply(`🔨 ${user.tag} banned. Reason: ${reason}`);
+  return interaction.reply(say(`🔨 **${user.tag}** has been banned.\n📝 **Reason:** ${reason}`, {}, { title: '🔨 User banned', color: COLORS.danger }));
 }
 
 async function unban(interaction) {
@@ -76,7 +78,7 @@ async function unban(interaction) {
   } catch {
     return interaction.reply(ephemeral('That user ID isn\'t banned (or isn\'t valid).'));
   }
-  return interaction.reply(`✅ <@${userId}> unbanned.`);
+  return interaction.reply(say(`✅ <@${userId}> has been unbanned.`, {}, { title: '✅ User unbanned', color: COLORS.success }));
 }
 
 export const moderationCommands = { purge, mute, unmute, ban, unban };

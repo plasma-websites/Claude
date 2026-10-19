@@ -1,4 +1,5 @@
 import { ChannelType, PermissionFlagsBits as P, SlashCommandBuilder } from 'discord.js';
+import { PAYMENT_METHODS } from './services.js';
 
 const panelCommand = (name, description) =>
   new SlashCommandBuilder()
@@ -15,6 +16,7 @@ export const commands = [
   panelCommand('verifypanel', 'Post the verify panel (RestoreCord / VaultCord link)'),
   panelCommand('tos', 'Post the order policy & server rules'),
   panelCommand('whyfoodhub', 'Post the Why Food Hub panel'),
+  panelCommand('staffpanel', 'Post the orderer control panel (online status & payment details)'),
   new SlashCommandBuilder()
     .setName('vouchpanel')
     .setDescription('Post (or move to the bottom) the vouch panel in the vouch channel')
@@ -37,6 +39,14 @@ export const commands = [
     .setName('cancel')
     .setDescription('Cancel one of your orders that hasn\'t been accepted yet')
     .addIntegerOption((o) => o.setName('id').setDescription('Order number, e.g. 483920').setRequired(true).setMinValue(1)),
+
+  // Payment requests (orderers): /paypal /rev /starling /crypto amount:
+  ...Object.values(PAYMENT_METHODS).map((m) =>
+    new SlashCommandBuilder()
+      .setName(m.command)
+      .setDescription(`Request a payment via ${m.label} (posts your saved details)`)
+      .addNumberOption((o) => o.setName('amount').setDescription('Amount in £, e.g. 12.50').setRequired(true).setMinValue(0.01).setMaxValue(10000)),
+  ),
 
   // Moderation
   new SlashCommandBuilder()

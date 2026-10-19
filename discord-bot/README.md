@@ -30,6 +30,33 @@ The customer gets DMs along the way. Auto-close times are saved, so tickets stil
 Ticket status emojis: 🔵 in progress · 🟢 completed · 🔒 closed. Discord limits channel renames to 2 per
 10 minutes, so a rename can show up a few minutes late if a ticket changes status quickly.
 
+## Staff panel, fees & payments
+Post the **🧑‍🍳 Orderer control panel** in a staff channel with `/staffpanel`. Orderers use it to:
+- **Go online** for the services they're taking (multi-select) or **Go offline**. The order panel shows who's online
+  for each service, live, and new orders ping the online orderers for that service (or the orderer role if nobody is).
+- **Payment details:** save their PayPal, Revolut and Starling links and LTC address.
+- **My status:** see what's saved.
+
+Service fees (in `src/services.js`): Uber Rides **£1.50**, Uber Eats **£2.50**, Deliveroo **£2.50**, Just Eat **£2.00**.
+They show on the order panel, the promo step, the order post and the ticket.
+
+In an order ticket, orderers run `/paypal amount:`, `/rev amount:`, `/starling amount:` or `/crypto amount:`. The bot
+posts a **💳 PAYMENT DUE** panel pinging the customer with the amount in £ and the orderer's saved link/address. The
+customer presses **✅ I've paid**, the orderer is pinged and presses **💰 Confirm received** or **❌ Not received**.
+
+**🔁 Forfeit** (in the ticket, accepting orderer or admin): the order goes back to the queue with its ticket kept, the
+old staff post is replaced by a fresh one that re-pings, and whoever accepts next joins the same ticket.
+
+Every message the bot sends is an embed panel (pings are sent alongside the embed).
+
+## Food Hub AI assistant (support tickets)
+Set `ANTHROPIC_API_KEY` (from console.anthropic.com) and restart. When a support ticket opens, the assistant answers
+the member's question using Food Hub's services, promos, fees, how ordering works, the rules, and that member's recent
+orders. Members can **💬 Ask a follow-up** or press **🙋 Talk to a human**, which pings the support role and turns the
+assistant off for that ticket. It can't take actions (cancel, refund, etc.) and won't ask for card or login details.
+It uses Claude Opus 5.5 at low effort with server-side fallback on refusals, max 15 questions per ticket. Each answer
+costs a fraction of a penny to a few pence depending on length; set a spending limit in the Anthropic console.
+
 When an order is completed, a **✅ ORDER COMPLETED** post (service, customer, staff member) goes into the
 completed-orders channel if `COMPLETED_CHANNEL_ID` is set.
 
@@ -74,6 +101,8 @@ verify panel with a button to your verify link.
 | `/verifypanel [channel:]` | Manage Server | Post the verify panel (needs `VERIFY_URL`) |
 | `/vouchpanel` | Manage Server | Post / move the vouch panel to the bottom of the vouch channel |
 | `/tos [channel:]` | Manage Server | Post the order policy & server rules panel |
+| `/staffpanel [channel:]` | Manage Server | Post the orderer control panel |
+| `/paypal` `/rev` `/starling` `/crypto` `amount:` | Orderer role | Post a payment-due panel with your saved details |
 | `/whyfoodhub [channel:]` | Manage Server | Post the Why Food Hub panel (2 buttons, text in `src/whyfoodhub.js`) |
 | `/announce [channel:] [ping:]` | Manage Server | Post an announcement panel |
 | `/myorders` | everyone | Your recent orders and their status |

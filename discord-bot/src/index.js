@@ -1,13 +1,15 @@
 import { Client, Events, GatewayIntentBits, MessageFlags, Partials } from 'discord.js';
+import { createAiHandlers } from './ai.js';
 import { loadConfig, loadPromos } from './config.js';
 import { moderationCommands } from './moderation.js';
 import { createOrderHandlers } from './orders.js';
 import { SERVICES, STATUS } from './services.js';
 import { Store } from './store.js';
+import { PAYMENT_COMMANDS, createStaffHandlers } from './staff.js';
 import { createSupportHandlers } from './support.js';
 import { TOS } from './tos.js';
 import { WHY_FOOD_HUB, WHY_OVER_FOODPLUG } from './whyfoodhub.js';
-import { editMessage, ensureTicketCategory, ephemeral, isAdmin } from './util.js';
+import { COLORS, editMessage, ensureTicketCategory, ephemeral, isAdmin } from './util.js';
 import { createVouchHandlers } from './vouches.js';
 import {
   announceModal,
@@ -15,6 +17,7 @@ import {
   orderEmbed,
   ordersPanel,
   staffButtons,
+  staffPanel,
   supportPanel,
   tosPanel,
   verifyPanel,
@@ -32,33 +35,39 @@ const client = new Client({
 });
 
 const ctx = { client, config, store, promos };
+ctx.ai = createAiHandlers(ctx);
 const orders = createOrderHandlers(ctx);
 const support = createSupportHandlers(ctx);
+const staff = createStaffHandlers(ctx);
 const vouches = createVouchHandlers(ctx);
 
 async function handleCommand(interaction) {
   const name = interaction.commandName;
   if (moderationCommands[name]) return moderationCommands[name](interaction);
+  if (PAYMENT_COMMANDS.includes(name)) return staff.requestPayment(interaction);
 
   switch (name) {
     case 'orderpanel':
     case 'supportpanel':
     case 'verifypanel':
     case 'tos':
-    case 'whyfoodhub': {
+    case 'whyfoodhub':
+    case 'staffpanel': {
       if (name === 'verifypanel' && !config.verifyUrl) {
         return interaction.reply(ephemeral('Set `VERIFY_URL` in `.env` to your RestoreCord / VaultCord verify link first, then restart the bot.'));
       }
       const channel = interaction.options.getChannel('channel') ?? interaction.channel;
       const panel = {
-        orderpanel: () => ordersPanel(promos),
+        orderpanel: () => ordersPanel(promos, store.onlineByService()),
         supportpanel: supportPanel,
         verifypanel: () => verifyPanel(config.verifyUrl),
         tos: () => tosPanel(TOS),
         whyfoodhub: whyPanel,
+        staffpanel: staffPanel,
       }[name]();
       try {
-        await channel.send(panel);
+        const message = await channel.send(panel);
+        if (name === 'orderpanel') staff.recordOrderPanel(message); // so its "who's online" list stays live
       } catch {
         return interaction.reply(ephemeral(`I can't post in ${channel} — give me View Channel, Send Messages and Embed Links there.`));
       }
@@ -131,13 +140,16 @@ client.on(Events.InteractionCreate, async (interaction) => {
     if (interaction.customId.startsWith('support:')) return await support.handleComponent(interaction);
     if (interaction.customId.startsWith('vouch:')) return await vouches.handleComponent(interaction);
     if (interaction.customId.startsWith('announce:')) return await postAnnouncement(interaction);
+    if (interaction.customId.startsWith('staff:')) return await staff.handleComponent(interaction);
+    if (interaction.customId.startsWith('pay:')) return await staff.handlePaymentButton(interaction);
+    if (interaction.customId.startsWith('ai:')) return await ctx.ai.handleComponent(interaction);
     if (interaction.customId === 'why:hub') return await interaction.reply({ embeds: [whyFoodHubEmbed(WHY_FOOD_HUB)], flags: MessageFlags.Ephemeral });
     if (interaction.customId === 'why:foodplug') {
       return await interaction.reply({ embeds: [whyOverFoodplugEmbed(WHY_OVER_FOODPLUG)], flags: MessageFlags.Ephemeral });
     }
   } catch (err) {
     console.error(err);
-    const reply = ephemeral('Something went wrong, please try again.');
+    const reply = ephemeral('😔 Something went wrong, please try again.', {}, { color: COLORS.danger });
     if (interaction.deferred || interaction.replied) await interaction.followUp(reply).catch(() => {});
     else await interaction.reply(reply).catch(() => {});
   }
