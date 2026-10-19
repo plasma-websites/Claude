@@ -93,3 +93,34 @@ test('parseDuration', () => {
   assert.equal(parseDuration('0m'), null);
   assert.equal(parseDuration('soon'), null);
 });
+
+const embedSize = (e) => {
+  const j = e.toJSON();
+  return (j.title?.length ?? 0) + (j.description?.length ?? 0) + (j.footer?.text.length ?? 0) +
+    (j.fields ?? []).reduce((n, f) => n + f.name.length + f.value.length, 0);
+};
+
+test('tos panel contains every section and fits Discord limits', async () => {
+  const { TOS } = await import('../src/tos.js');
+  const embed = views.tosPanel(TOS).embeds[0];
+  const json = embed.toJSON();
+  assert.equal(json.title, '📜 FOOD HUB | ORDER POLICY & SERVER RULES');
+  assert.equal(json.fields.length, 10);
+  assert.ok(json.fields.every((f) => f.value.length <= 1024 && f.name.length <= 256));
+  assert.ok(embedSize(embed) <= 6000, `embed is ${embedSize(embed)} chars`);
+});
+
+test('completed, vouch and announcement views', () => {
+  const done = { ...order, status: 'completed', ordererId: '2' };
+  const text = views.completedEmbed(done).toJSON().description;
+  assert.ok(text.includes('Another order completed successfully') && text.includes('<@1>') && text.includes('<@2>') && text.includes('Deliveroo'));
+  const sticky = views.vouchSticky();
+  assert.equal(sticky.components[0].toJSON().components[0].custom_id, 'vouch:start');
+  assert.equal(views.starPicker(483920).toJSON().options.length, 5);
+  assert.equal(views.vouchModal(483920, '5').toJSON().custom_id, 'vouch:submit:483920:5');
+  const vouch = views.vouchEmbed({ number: 3, stars: 4, userId: '1', message: 'fast\nnice', createdAt: new Date().toISOString() }, done).toJSON();
+  assert.equal(vouch.title, '⭐⭐⭐⭐☆  Vouch #3');
+  assert.equal(views.announceModal('c1', 'here').toJSON().custom_id, 'announce:c1:here');
+  assert.equal(views.announcementEmbed({ title: 'Hi', message: 'x', image: 'https://e.com/a.png', author: 'sam' }).toJSON().image.url, 'https://e.com/a.png');
+  for (const n of ['tos', 'vouchpanel', 'announce']) assert.ok(commands.some((c) => c.toJSON().name === n), n);
+});

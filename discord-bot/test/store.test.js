@@ -79,3 +79,20 @@ test('support tickets: one open per user', () => {
   store.updateSupport(t.id, { status: 'closed' });
   assert.equal(store.openSupportFor('u'), null);
 });
+
+test('vouches: only finished orders, once each, by the customer', () => {
+  const store = tempStore();
+  const a = newOrder(store);
+  assert.equal(store.vouchableOrder('cust'), null, 'pending orders cannot be vouched');
+  assert.match(store.addVouch({ orderId: a.id, userId: 'cust', stars: 5, message: 'great' }).error, /completed/);
+  store.accept(a.id, 'staff1');
+  store.complete(a.id, new Date());
+  assert.equal(store.vouchableOrder('cust').id, a.id);
+  assert.match(store.addVouch({ orderId: a.id, userId: 'other', stars: 5, message: 'x' }).error, /your own/);
+  const { vouch } = store.addVouch({ orderId: a.id, userId: 'cust', stars: 5, message: 'great' });
+  assert.equal(vouch.number, 1);
+  assert.match(store.addVouch({ orderId: a.id, userId: 'cust', stars: 4, message: 'again' }).error, /already vouched/);
+  assert.equal(store.vouchableOrder('cust'), null);
+  store.setMeta('vouchStickyId', 'm1');
+  assert.equal(new Store(store.file).getMeta('vouchStickyId'), 'm1');
+});

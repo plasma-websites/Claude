@@ -11,6 +11,7 @@ import {
   promoPicker,
   staffButtons,
   ticketButtons,
+  completedEmbed,
   ticketWelcome,
   vcPicker,
 } from './views.js';
@@ -217,7 +218,14 @@ export function createOrderHandlers({ client, config, store, promos }) {
       `🎉 **Order completed** by <@${interaction.user.id}>!\n⏳ This ticket will close automatically <t:${Math.floor(closeAt / 1000)}:R>.`,
     );
     await refreshStaffMessage(order);
-    dm(client, order.customerId, `🟢 Your **${label(order)}** has been completed! Enjoy 😋`);
+    if (config.completedChannelId) {
+      client.channels
+        .fetch(config.completedChannelId)
+        .then((channel) => channel.send({ embeds: [completedEmbed(order)], allowedMentions: { parse: [] } }))
+        .catch((err) => console.error('Could not post to the completed orders channel:', err.message));
+    }
+    const vouchHint = config.vouchChannelId ? `\n⭐ Happy with it? Leave a vouch in <#${config.vouchChannelId}>!` : '';
+    dm(client, order.customerId, `🟢 Your **${label(order)}** has been completed! Enjoy 😋${vouchHint}`);
   }
 
   async function close(interaction, id) {

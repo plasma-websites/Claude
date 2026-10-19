@@ -33,6 +33,8 @@ export function loadConfig(required) {
     supportRoleId: process.env.SUPPORT_ROLE_ID || process.env.ORDERER_ROLE_ID,
     ticketCategoryId: process.env.TICKET_CATEGORY_ID,
     supportCategoryId: process.env.SUPPORT_CATEGORY_ID, // falls back to the ticket category at startup
+    completedChannelId: process.env.COMPLETED_CHANNEL_ID || null,
+    vouchChannelId: process.env.VOUCH_CHANNEL_ID || null,
     verifyUrl: process.env.VERIFY_URL || null,
     verifiedRoleId: process.env.VERIFIED_ROLE_ID || null,
     autoCloseHours: Number(process.env.AUTO_CLOSE_HOURS) || 2,

@@ -13,6 +13,24 @@ export const commands = [
   panelCommand('orderpanel', 'Post the submit-orders panel'),
   panelCommand('supportpanel', 'Post the support tickets panel'),
   panelCommand('verifypanel', 'Post the verify panel (RestoreCord / VaultCord link)'),
+  panelCommand('tos', 'Post the order policy & server rules'),
+  new SlashCommandBuilder()
+    .setName('vouchpanel')
+    .setDescription('Post (or move to the bottom) the vouch panel in the vouch channel')
+    .setDefaultMemberPermissions(P.ManageGuild),
+  new SlashCommandBuilder()
+    .setName('announce')
+    .setDescription('Post an announcement as a panel from the bot')
+    .setDefaultMemberPermissions(P.ManageGuild)
+    .addChannelOption((o) =>
+      o.setName('channel').setDescription('Where to post it (default: this channel)').addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement),
+    )
+    .addStringOption((o) =>
+      o
+        .setName('ping')
+        .setDescription('Ping anyone?')
+        .addChoices({ name: 'No ping', value: 'none' }, { name: '@everyone', value: 'everyone' }, { name: '@here', value: 'here' }),
+    ),
   new SlashCommandBuilder().setName('myorders').setDescription('Show your recent orders'),
   new SlashCommandBuilder()
     .setName('cancel')

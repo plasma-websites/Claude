@@ -249,3 +249,140 @@ export function verifyPanel(url) {
     );
   return { embeds: [embed], components: [row(linkButton(url, 'Verify', '✅'))] };
 }
+
+// --- completed orders feed ---
+
+export function completedEmbed(order) {
+  const service = SERVICES[order.service];
+  return new EmbedBuilder()
+    .setTitle('✅  ORDER COMPLETED  ✅')
+    .setColor(0x57f287)
+    .setDescription(
+      [
+        '🎉 **Another order completed successfully!**',
+        DIVIDER,
+        `${service.emoji} **Service:** ${service.label}`,
+        `👤 **For:** <@${order.customerId}>`,
+        `🧑‍🍳 **By:** <@${order.ordererId}>`,
+        order.promo ? `🏷️ **Promo:** ${order.promo}` : null,
+        DIVIDER,
+        '🛒 Want yours? Head to the order channel and place an order! 🚀',
+      ]
+        .filter(Boolean)
+        .join('\n'),
+    )
+    .setFooter({ text: `Order #${order.id}` })
+    .setTimestamp();
+}
+
+// --- vouches ---
+
+const stars = (n) => '⭐'.repeat(n) + '☆'.repeat(5 - n);
+
+export function vouchSticky() {
+  const embed = new EmbedBuilder()
+    .setTitle('⭐  LEAVE A VOUCH  ⭐')
+    .setColor(0xfee75c)
+    .setDescription(
+      [
+        '> Had a great order? Let everyone know! 💛 Every vouch here is from a **real, completed order**.',
+        DIVIDER,
+        '### ✅ What makes a good vouch',
+        '🍔 Say **what you ordered** and which service',
+        '⚡ Mention the **speed** and how smooth it was',
+        '🧑‍🍳 Shout out the **staff member** who helped you',
+        '📝 Be **honest** and keep it clean',
+        DIVIDER,
+        '### 🛡️ Vouch rules',
+        '🔐 Only customers with a **completed order** can vouch',
+        '1️⃣ **One vouch per order**',
+        '🚫 Normal messages here are removed automatically',
+        DIVIDER,
+        '👇 Click **Leave a vouch** to get started!',
+      ].join('\n'),
+    );
+  return { embeds: [embed], components: [row(button('vouch:start', 'Leave a vouch', ButtonStyle.Success, '⭐'))] };
+}
+
+export function starPicker(orderId) {
+  const menu = new StringSelectMenuBuilder()
+    .setCustomId(`vouch:stars:${orderId}`)
+    .setPlaceholder('⭐ How many stars?')
+    .addOptions([5, 4, 3, 2, 1].map((n) => ({ label: `${n} star${n > 1 ? 's' : ''}`, value: String(n), emoji: '⭐', description: stars(n) })));
+  return menu;
+}
+
+export function vouchModal(orderId, starCount) {
+  return new ModalBuilder()
+    .setCustomId(`vouch:submit:${orderId}:${starCount}`)
+    .setTitle(`⭐ Vouch for order #${orderId}`)
+    .addComponents(
+      row(
+        new TextInputBuilder()
+          .setCustomId('message')
+          .setLabel('Your vouch')
+          .setStyle(TextInputStyle.Paragraph)
+          .setRequired(true)
+          .setMinLength(10)
+          .setMaxLength(800)
+          .setPlaceholder('What did you order, how fast was it, who helped you?'),
+      ),
+    );
+}
+
+export function vouchEmbed(vouch, order) {
+  const service = SERVICES[order.service];
+  return new EmbedBuilder()
+    .setTitle(`${stars(vouch.stars)}  Vouch #${vouch.number}`)
+    .setColor(0xfee75c)
+    .setDescription(`> ${vouch.message.replace(/\n/g, '\n> ')}`)
+    .addFields(
+      { name: '👤 Customer', value: `<@${vouch.userId}>`, inline: true },
+      { name: `${service.emoji} Service`, value: service.label, inline: true },
+      { name: '🧑‍🍳 Staff', value: order.ordererId ? `<@${order.ordererId}>` : '—', inline: true },
+    )
+    .setFooter({ text: `✅ Verified purchase • Order #${order.id}` })
+    .setTimestamp(new Date(vouch.createdAt));
+}
+
+// --- announcements & ToS ---
+
+export function announceModal(channelId, ping) {
+  return new ModalBuilder()
+    .setCustomId(`announce:${channelId}:${ping}`)
+    .setTitle('📢 New announcement')
+    .addComponents(
+      row(new TextInputBuilder().setCustomId('title').setLabel('Title').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(200)),
+      row(new TextInputBuilder().setCustomId('message').setLabel('Message').setStyle(TextInputStyle.Paragraph).setRequired(true).setMaxLength(4000)),
+      row(
+        new TextInputBuilder()
+          .setCustomId('image')
+          .setLabel('Image URL (optional)')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false)
+          .setPlaceholder('https://…'),
+      ),
+    );
+}
+
+export function announcementEmbed({ title, message, image, author }) {
+  const embed = new EmbedBuilder()
+    .setTitle(`📢  ${title}`)
+    .setColor(BRAND)
+    .setDescription(message)
+    .setFooter({ text: `Posted by ${author}` })
+    .setTimestamp();
+  if (image) embed.setImage(image);
+  return embed;
+}
+
+export function tosPanel(tos) {
+  const embed = new EmbedBuilder()
+    .setTitle(tos.title)
+    .setColor(0xed4245)
+    .setDescription(`> Please read these carefully before placing an order. ⚠️\n${DIVIDER}`)
+    .addFields(tos.sections)
+    .setFooter({ text: `🙏 ${tos.footer}` })
+    .setTimestamp();
+  return { embeds: [embed] };
+}

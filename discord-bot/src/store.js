@@ -18,7 +18,7 @@ function randomId(taken) {
 export class Store {
   constructor(file) {
     this.file = file;
-    this.data = { orders: {}, support: {} };
+    this.data = { orders: {}, support: {}, vouches: [], meta: {} };
     if (fs.existsSync(file)) Object.assign(this.data, JSON.parse(fs.readFileSync(file, 'utf8')));
   }
 
@@ -125,6 +125,38 @@ export class Store {
       return { error: `Order #${id} is ${order.status}, so it can't be cancelled here — ask in your ticket.` };
     }
     return this.#transition(id, ['pending'], { status: 'cancelled' });
+  }
+
+  // --- vouches ---
+
+  // Most recent finished order of this customer that they haven't vouched for yet.
+  vouchableOrder(customerId) {
+    return (
+      Object.values(this.data.orders)
+        .filter((o) => o.customerId === customerId && ['completed', 'closed'].includes(o.status) && !o.vouch)
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0] ?? null
+    );
+  }
+
+  addVouch({ orderId, userId, stars, message }) {
+    const order = this.getOrder(orderId);
+    if (!order || order.customerId !== userId) return { error: 'You can only vouch for your own orders.' };
+    if (!['completed', 'closed'].includes(order.status)) return { error: 'You can only vouch once your order is completed.' };
+    if (order.vouch) return { error: `You've already vouched for order #${orderId}. 💛` };
+    const vouch = { number: this.data.vouches.length + 1, orderId, userId, stars, message, createdAt: now() };
+    this.data.vouches.push(vouch);
+    order.vouch = vouch.number;
+    this.save();
+    return { vouch, order };
+  }
+
+  getMeta(key) {
+    return this.data.meta[key] ?? null;
+  }
+
+  setMeta(key, value) {
+    this.data.meta[key] = value;
+    this.save();
   }
 
   // --- support tickets ---

@@ -30,6 +30,23 @@ The customer gets DMs along the way. Auto-close times are saved, so tickets stil
 Ticket status emojis: 🔵 in progress · 🟢 completed · 🔒 closed. Discord limits channel renames to 2 per
 10 minutes, so a rename can show up a few minutes late if a ticket changes status quickly.
 
+When an order is completed, a **✅ ORDER COMPLETED** post (service, customer, staff member) goes into the
+completed-orders channel if `COMPLETED_CHANNEL_ID` is set.
+
+## Vouches
+Set `VOUCH_CHANNEL_ID`, restart, and run `/vouchpanel`. The channel gets a **⭐ Leave a vouch** panel explaining
+what a good vouch looks like, and the bot keeps it as the last message in the channel.
+- Only customers with a **completed order** can vouch, **once per order**, with 1-5 stars and a message.
+- Each vouch is posted by the bot with a "✅ Verified purchase • Order #…" footer.
+- Anything else typed in the channel is deleted (staff with Manage Messages are allowed). Best to also turn off
+  **Send Messages** for `@everyone` in that channel.
+- Customers get a reminder to vouch in their "order completed" DM.
+
+## Announcements & ToS
+- `/announce [channel:] [ping:]` opens a form (title, message, optional image link) and posts it as a bot panel,
+  optionally pinging @everyone or @here.
+- `/tos [channel:]` posts the **📜 FOOD HUB | ORDER POLICY & SERVER RULES** panel. Edit the text in `src/tos.js`.
+
 ## Support tickets
 Post the panel with `/supportpanel`. Members click **Open support ticket**, type what they need, and get a private
 `🟢-support-123456` channel with the support role. The member or staff can **Close** it (locks it, `🔒`), and staff
@@ -55,6 +72,9 @@ verify panel with a button to your verify link.
 | `/orderpanel [channel:]` | Manage Server | Post the order panel |
 | `/supportpanel [channel:]` | Manage Server | Post the support tickets panel |
 | `/verifypanel [channel:]` | Manage Server | Post the verify panel (needs `VERIFY_URL`) |
+| `/vouchpanel` | Manage Server | Post / move the vouch panel to the bottom of the vouch channel |
+| `/tos [channel:]` | Manage Server | Post the order policy & server rules panel |
+| `/announce [channel:] [ping:]` | Manage Server | Post an announcement panel |
 | `/myorders` | everyone | Your recent orders and their status |
 | `/cancel id:` | everyone | Cancel your order before it's accepted |
 | `/purge amount: [user:]` | Manage Messages | Delete up to 100 recent messages (optionally from one user) |
