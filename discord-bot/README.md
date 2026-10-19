@@ -6,14 +6,19 @@ and moderation commands.
 ## Order flow
 1. In your **submit-orders** channel (panel posted with `/panel type:Submit orders`), a member picks the company
    from a dropdown.
-2. They pick a promo (from `promos.json`, plus "No promo").
+2. They pick a promo from `promos.json`:
+   - Uber Rides: **10 off**
+   - Uber Eats: **10 off**, **12 off**
+   - Deliveroo: **15f20**
 3. They answer **VC?** Yes / No.
-4. The bot DMs them asking for their **order screenshot**. They have 15 minutes to send it as an image.
-5. The order appears in the **staff orders channel** with the screenshot, pinging the orderer role, with
+4. A form pops up for the address: **delivery address** for Uber Eats / Deliveroo, **pickup + drop-off** for
+   Uber Rides, plus optional notes.
+5. The bot DMs them asking for their **order screenshot**. They have 15 minutes to send it as an image.
+6. The order appears in the **staff orders channel** with the screenshot, pinging the orderer role, with
    **Accept order** and **Decline** buttons.
-6. **Accept order** (orderer role only, one person per order) creates a private ticket channel `order-0001` for the
+7. **Accept order** (orderer role only, one person per order) creates a private ticket channel `order-0001` for the
    customer, the accepting staff member and the orderer role. Its panel shows all the order info and the screenshot.
-7. In the ticket, **Complete order** marks it done and the ticket **auto-closes 2 hours later** (`AUTO_CLOSE_HOURS`).
+8. In the ticket, **Complete order** marks it done and the ticket **auto-closes 2 hours later** (`AUTO_CLOSE_HOURS`).
    **Close ticket** / **Close now** closes it immediately. The customer gets DMs along the way.
 
 Auto-close times are saved, so tickets still close on schedule if the bot restarts.
@@ -56,7 +61,6 @@ mute/ban someone with an equal or higher role.
    cd discord-bot
    npm install
    cp .env.example .env               # fill in the IDs (turn on Developer Mode in Discord to copy IDs)
-   cp promos.example.json promos.json # put your promo names in (max 24 per company)
    npm run deploy                     # registers slash commands; rerun after changing src/commands.js
    npm start
    ```
@@ -67,4 +71,5 @@ Members need **DMs from server members** turned on to send their screenshot; the
 Orders, tickets and screenshots are saved under `data/` (git-ignored). Screenshots contain customers' personal
 details, so delete old ones from `data/screenshots/` periodically.
 
-Run `npm test` after making changes.
+To change promos, edit `promos.json` and restart the bot. To change the address form, edit `fields` in
+`src/services.js`. Run `npm test` after making changes.

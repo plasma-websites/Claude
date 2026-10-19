@@ -3,15 +3,15 @@ import { SERVICES } from './services.js';
 
 const root = new URL('..', import.meta.url).pathname;
 
-// promos.json (yours, not in git) falls back to promos.example.json.
-export function loadPromos(file = fs.existsSync(`${root}promos.json`) ? `${root}promos.json` : `${root}promos.example.json`) {
+// Promo options per company, shown in the promo dropdown.
+export function loadPromos(file = `${root}promos.json`) {
   const promos = JSON.parse(fs.readFileSync(file, 'utf8'));
   for (const key of Object.keys(SERVICES)) {
     const list = promos[key] ?? [];
     if (!Array.isArray(list) || list.some((p) => typeof p !== 'string' || !p.trim() || p.length > 100)) {
       throw new Error(`${file}: "${key}" must be a list of promo names (1-100 characters each)`);
     }
-    if (list.length > 24) throw new Error(`${file}: "${key}" has more than 24 promos (Discord menu limit)`);
+    if (list.length < 1 || list.length > 25) throw new Error(`${file}: "${key}" needs 1-25 promos (Discord menu limit)`);
     promos[key] = list;
   }
   return promos;

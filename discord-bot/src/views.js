@@ -39,10 +39,7 @@ export function promoPicker(serviceKey, promos) {
   const menu = new StringSelectMenuBuilder()
     .setCustomId(`order:promo:${serviceKey}`)
     .setPlaceholder('Select a promo')
-    .addOptions(
-      ...promos.map((label, i) => ({ label, value: String(i) })),
-      { label: 'No promo', value: 'none' },
-    );
+    .addOptions(promos.map((label, i) => ({ label, value: String(i) })));
   return { content: `**${SERVICES[serviceKey].label}** — which promo?`, components: [row(menu)] };
 }
 
@@ -52,6 +49,23 @@ export function vcPicker(serviceKey, promoValue) {
     content: '**VC?**',
     components: [row(button(`${base}:yes`, 'Yes', ButtonStyle.Success), button(`${base}:no`, 'No', ButtonStyle.Secondary))],
   };
+}
+
+// Address form, shown after the VC question. Earlier answers ride along in the ID.
+export function detailsModal(serviceKey, promoValue, vc) {
+  const service = SERVICES[serviceKey];
+  const modal = new ModalBuilder().setCustomId(`order:details:${serviceKey}:${promoValue}:${vc}`).setTitle(`${service.label} — address`);
+  for (const f of service.fields) {
+    const input = new TextInputBuilder()
+      .setCustomId(f.id)
+      .setLabel(f.label)
+      .setStyle(f.style === 'paragraph' ? TextInputStyle.Paragraph : TextInputStyle.Short)
+      .setRequired(f.required)
+      .setMaxLength(f.max);
+    if (f.placeholder) input.setPlaceholder(f.placeholder);
+    modal.addComponents(row(input));
+  }
+  return modal;
 }
 
 export function orderEmbed(order) {
@@ -69,6 +83,10 @@ export function orderEmbed(order) {
     )
     .setTimestamp(new Date(order.createdAt));
   if (order.ordererId) embed.addFields({ name: 'Staff', value: `<@${order.ordererId}>`, inline: true });
+  for (const f of service.fields) {
+    const value = order.details?.[f.id]?.trim();
+    if (value) embed.addFields({ name: f.label.replace(' (optional)', ''), value });
+  }
   if (order.closeAt) embed.addFields({ name: 'Ticket closes', value: timestamp(order.closeAt), inline: true });
   if (order.screenshot) embed.setFooter({ text: 'Order screenshot attached' });
   return embed;

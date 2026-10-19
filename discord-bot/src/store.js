@@ -47,13 +47,14 @@ export class Store {
     return Object.values(this.data.orders).filter((o) => o.status === 'completed' && o.closeAt && Date.parse(o.closeAt) <= at);
   }
 
-  createOrder({ service, promo, vc, customerId }) {
+  createOrder({ service, promo, vc, details, customerId }) {
     const id = this.data.nextOrderId++;
     const order = {
       id,
       service,
       promo,
       vc,
+      details,
       customerId,
       screenshot: null,
       status: 'pending',

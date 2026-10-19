@@ -20,7 +20,14 @@ test('order flow components', () => {
   assert.equal(panel.custom_id, 'order:service');
   assert.equal(panel.options.length, Object.keys(SERVICES).length);
   const promo = views.promoPicker('deliveroo', ['A', 'B']).components[0].toJSON().components[0];
-  assert.deepEqual(promo.options.map((o) => o.value), ['0', '1', 'none']);
+  assert.deepEqual(promo.options.map((o) => o.value), ['0', '1']);
+  const modal = views.detailsModal('uberride', '0', 'yes').toJSON();
+  assert.equal(modal.custom_id, 'order:details:uberride:0:yes');
+  assert.deepEqual(modal.components.map((r) => r.components[0].custom_id), ['pickup', 'dropoff', 'notes']);
+  for (const key of Object.keys(SERVICES)) {
+    const json = views.detailsModal(key, '0', 'no').toJSON();
+    assert.ok(json.components.length <= 5 && json.components.every((r) => r.components[0].label.length <= 45));
+  }
   assert.deepEqual(ids(views.vcPicker('deliveroo', '1').components), ['order:vc:deliveroo:1:yes', 'order:vc:deliveroo:1:no']);
 });
 
@@ -34,6 +41,9 @@ test('staff and ticket buttons follow status', () => {
   assert.deepEqual(views.ticketButtons({ ...completed, status: 'closed' }), []);
   const fields = views.orderEmbed(completed).toJSON().fields.map((f) => f.name);
   assert.ok(fields.includes('VC') && fields.includes('Ticket closes') && fields.includes('Staff'));
+  const withAddress = views.orderEmbed({ ...order, details: { address: '1 High St', notes: '' } }).toJSON().fields;
+  assert.equal(withAddress.find((f) => f.name === 'Delivery address').value, '1 High St');
+  assert.ok(!withAddress.some((f) => f.name === 'Notes'), 'empty notes are hidden');
 });
 
 test('support views and commands serialize', () => {
@@ -43,11 +53,12 @@ test('support views and commands serialize', () => {
 });
 
 test('promo file validation', () => {
-  const example = loadPromos(new URL('../promos.example.json', import.meta.url).pathname);
-  assert.ok(example.ubereats.length > 0);
+  assert.deepEqual(loadPromos(), { uberride: ['10 off'], ubereats: ['10 off', '12 off'], deliveroo: ['15f20'] });
   const bad = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'promos-')), 'p.json');
-  fs.writeFileSync(bad, JSON.stringify({ ubereats: [''] }));
+  fs.writeFileSync(bad, JSON.stringify({ uberride: ['10 off'], ubereats: [''], deliveroo: ['x'] }));
   assert.throws(() => loadPromos(bad), /promo names/);
+  fs.writeFileSync(bad, JSON.stringify({ uberride: ['10 off'], ubereats: [], deliveroo: ['x'] }));
+  assert.throws(() => loadPromos(bad), /needs 1-25 promos/);
 });
 
 test('parseDuration', () => {

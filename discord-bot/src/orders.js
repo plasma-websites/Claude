@@ -3,12 +3,12 @@ import { MessageFlags } from 'discord.js';
 import path from 'node:path';
 import { SERVICES } from './services.js';
 import { createTicketChannel, deleteChannel, dm, editMessage, ephemeral, hasRole, isAdmin, pad } from './util.js';
-import { channelUrl, orderEmbed, promoPicker, staffButtons, ticketButtons, vcPicker } from './views.js';
+import { channelUrl, detailsModal, orderEmbed, promoPicker, staffButtons, ticketButtons, vcPicker } from './views.js';
 
 const SCREENSHOT_WAIT_MS = 15 * 60 * 1000;
 const MAX_SCREENSHOT_BYTES = 10 * 1024 * 1024;
 
-// Order flow: company -> promo -> VC yes/no -> screenshot in DMs -> staff channel
+// Order flow: company -> promo -> VC yes/no -> address form -> screenshot in DMs -> staff channel
 // -> Accept creates a ticket -> Complete order -> ticket auto-closes.
 export function createOrderHandlers({ client, config, store, promos }) {
   // Members who finished the questions and still owe us a screenshot, by user ID.
@@ -48,9 +48,20 @@ export function createOrderHandlers({ client, config, store, promos }) {
     return interaction.update(vcPicker(serviceKey, interaction.values[0]));
   }
 
-  async function pickVc(interaction, serviceKey, promoValue, answer) {
-    const promo = promoValue === 'none' ? null : (promos[serviceKey][Number(promoValue)] ?? null);
-    awaitingScreenshot.set(interaction.user.id, { service: serviceKey, promo, vc: answer === 'yes', expiresAt: Date.now() + SCREENSHOT_WAIT_MS });
+  function pickVc(interaction, serviceKey, promoValue, answer) {
+    return interaction.showModal(detailsModal(serviceKey, promoValue, answer));
+  }
+
+  async function submitDetails(interaction, serviceKey, promoValue, answer) {
+    const promo = promos[serviceKey][Number(promoValue)] ?? null;
+    const details = Object.fromEntries(SERVICES[serviceKey].fields.map((f) => [f.id, interaction.fields.getTextInputValue(f.id)]));
+    awaitingScreenshot.set(interaction.user.id, {
+      service: serviceKey,
+      promo,
+      vc: answer === 'yes',
+      details,
+      expiresAt: Date.now() + SCREENSHOT_WAIT_MS,
+    });
 
     const sent = await dm(
       client,
@@ -189,6 +200,7 @@ export function createOrderHandlers({ client, config, store, promos }) {
       case 'service': return pickService(interaction);
       case 'promo': return pickPromo(interaction, a);
       case 'vc': return pickVc(interaction, a, b, c);
+      case 'details': return submitDetails(interaction, a, b, c);
       case 'accept': return accept(interaction, Number(a));
       case 'decline': return decline(interaction, Number(a));
       case 'complete': return complete(interaction, Number(a));

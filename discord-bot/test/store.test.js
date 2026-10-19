@@ -10,7 +10,7 @@ function tempStore() {
   return new Store(path.join(dir, 'store.json'));
 }
 
-const newOrder = (store, customerId = 'cust') => store.createOrder({ service: 'ubereats', promo: 'Promo A', vc: true, customerId });
+const newOrder = (store, customerId = 'cust') => store.createOrder({ service: 'ubereats', promo: 'Promo A', vc: true, details: { address: '1 Road' }, customerId });
 
 test('orders get increasing ids and persist to disk', () => {
   const store = tempStore();
