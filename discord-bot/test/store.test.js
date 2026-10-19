@@ -12,14 +12,19 @@ function tempStore() {
 
 const newOrder = (store, customerId = 'cust') => store.createOrder({ service: 'ubereats', promo: 'Promo A', vc: true, details: { address: '1 Road' }, customerId });
 
-test('orders get increasing ids and persist to disk', () => {
+test('orders get unique random 6-digit numbers and persist to disk', () => {
   const store = tempStore();
-  assert.equal(newOrder(store).id, 1);
-  assert.equal(newOrder(store).id, 2);
+  const ids = new Set();
+  for (let i = 0; i < 500; i++) {
+    const { id } = newOrder(store);
+    assert.ok(id >= 100000 && id <= 999999, `${id} is 6 digits`);
+    ids.add(id);
+  }
+  assert.equal(ids.size, 500, 'no duplicates');
+  const [first] = ids;
   const reloaded = new Store(store.file);
-  assert.equal(reloaded.getOrder(2).promo, 'Promo A');
-  assert.equal(reloaded.getOrder(2).vc, true);
-  assert.equal(newOrder(reloaded).id, 3);
+  assert.equal(reloaded.getOrder(first).promo, 'Promo A');
+  assert.equal(reloaded.getOrder(first).vc, true);
 });
 
 test('only one staff member can accept an order, and not their own', () => {
@@ -57,12 +62,12 @@ test('customers can cancel only pending orders', () => {
 test('open orders and ticket lookups', () => {
   const store = tempStore();
   const a = newOrder(store);
-  newOrder(store);
+  const b = newOrder(store);
   newOrder(store, 'other');
   store.decline(a.id);
   assert.equal(store.openOrdersFor('cust').length, 1);
-  store.updateOrder(2, { ticketChannelId: 'chan' });
-  assert.equal(store.orderByTicket('chan').id, 2);
+  store.updateOrder(b.id, { ticketChannelId: 'chan' });
+  assert.equal(store.orderByTicket('chan').id, b.id);
 });
 
 test('support tickets: one open per user', () => {

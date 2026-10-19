@@ -4,13 +4,21 @@ import path from 'node:path';
 const OPEN = new Set(['pending', 'accepted', 'completed']);
 const now = () => new Date().toISOString();
 
+// Random 6-digit number not already used as a key in `taken`.
+function randomId(taken) {
+  for (;;) {
+    const id = 100000 + Math.floor(Math.random() * 900000);
+    if (!taken[id]) return id;
+  }
+}
+
 // Orders and support tickets kept in memory and written to a JSON file after
 // every change. All state changes are synchronous, so two staff clicking
 // "Accept" at the same moment can't both win.
 export class Store {
   constructor(file) {
     this.file = file;
-    this.data = { nextOrderId: 1, nextSupportId: 1, orders: {}, support: {} };
+    this.data = { orders: {}, support: {} };
     if (fs.existsSync(file)) Object.assign(this.data, JSON.parse(fs.readFileSync(file, 'utf8')));
   }
 
@@ -38,7 +46,7 @@ export class Store {
   recentOrdersFor(customerId, limit = 10) {
     return Object.values(this.data.orders)
       .filter((o) => o.customerId === customerId)
-      .sort((a, b) => b.id - a.id)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
       .slice(0, limit);
   }
 
@@ -48,7 +56,7 @@ export class Store {
   }
 
   createOrder({ service, promo, vc, details, customerId }) {
-    const id = this.data.nextOrderId++;
+    const id = randomId(this.data.orders);
     const order = {
       id,
       service,
@@ -130,7 +138,7 @@ export class Store {
   }
 
   createSupport({ userId, reason }) {
-    const id = this.data.nextSupportId++;
+    const id = randomId(this.data.support);
     const ticket = { id, userId, reason, channelId: null, status: 'open', createdAt: now() };
     this.data.support[id] = ticket;
     this.save();

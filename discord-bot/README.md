@@ -1,38 +1,60 @@
 # Orders bot
 
-Discord bot for taking **Uber Rides**, **Uber Eats** and **Deliveroo** orders, with order tickets, support tickets
-and moderation commands.
+Discord bot for taking **Uber Rides**, **Uber Eats**, **Deliveroo** and **Just Eat** orders, with order tickets,
+support tickets, a verify panel and moderation commands.
 
 ## Order flow
-1. In your **submit-orders** channel (panel posted with `/orderpanel`), a member picks the company
-   from a dropdown.
+1. In your order channel (panel posted with `/orderpanel`), a member picks the company from a dropdown.
 2. They pick a promo from `promos.json`:
    - Uber Rides: **10 off**
    - Uber Eats: **10 off**, **12 off**
    - Deliveroo: **15f20**
+   - Just Eat: **10 off**
 3. They answer **VC?** Yes / No.
-4. A form pops up for the address: **delivery address** for Uber Eats / Deliveroo, **pickup + drop-off** for
-   Uber Rides, plus optional notes.
-5. The bot DMs them asking for their **order screenshot**. They have 15 minutes to send it as an image.
+4. A form pops up for the address: **delivery address** for Uber Eats / Deliveroo / Just Eat, **pickup + drop-off**
+   for Uber Rides, plus optional notes.
+5. The bot DMs them asking for their **order screenshot** (15 minutes to send it) and gives them a random
+   6-digit **order number**, e.g. `#483920`.
 6. The order appears in the **staff orders channel** with the screenshot, pinging the orderer role, with
    **Accept order** and **Decline** buttons.
-7. **Accept order** (orderer role only, one person per order) creates a private ticket channel `order-0001` for the
-   customer, the accepting staff member and the orderer role. Its panel shows all the order info and the screenshot.
-8. In the ticket, **Complete order** marks it done and the ticket **auto-closes 2 hours later** (`AUTO_CLOSE_HOURS`).
-   **Close ticket** / **Close now** closes it immediately. The customer gets DMs along the way.
+7. **Accept order** (orderer role only, one person per order) creates a private ticket in the tickets category,
+   named after the order number with a status emoji, e.g. `🔵-order-483920`. Its panel shows all the order info
+   and the screenshot.
+8. In the ticket, **Complete order** renames it `🟢-order-483920` and it **auto-closes 2 hours later**
+   (`AUTO_CLOSE_HOURS`). **Close ticket** closes it immediately.
+9. Closing **locks** the ticket (`🔒-order-483920`): the customer loses access, staff keep it.
+   **Delete ticket** (staff only) removes the channel; it's available on every ticket at any stage.
 
-Auto-close times are saved, so tickets still close on schedule if the bot restarts.
+The customer gets DMs along the way. Auto-close times are saved, so tickets still close on schedule if the bot restarts.
+
+Ticket status emojis: 🔵 in progress · 🟢 completed · 🔒 closed. Discord limits channel renames to 2 per
+10 minutes, so a rename can show up a few minutes late if a ticket changes status quickly.
 
 ## Support tickets
-Post the panel with `/supportpanel`. Members click **Open support ticket**, type what they need, and
-get a private `support-0001` channel with the support role. The member or support staff can close it with
-**Close ticket**. One open support ticket per member.
+Post the panel with `/supportpanel`. Members click **Open support ticket**, type what they need, and get a private
+`🟢-support-123456` channel with the support role. The member or staff can **Close** it (locks it, `🔒`), and staff
+can **Delete** it. One open support ticket per member.
+
+## Verification (RestoreCord / VaultCord)
+RestoreCord and VaultCord are separate services: they do the actual verifying, hand out your Verified role, and
+back up your members so you can pull them into a new server if this one is ever lost. This bot posts a matching
+verify panel with a button to your verify link.
+
+1. Create a `✅-verify` channel and a `Verified` role.
+2. Sign up on [restorecord.com](https://restorecord.com) or [vaultcord.com](https://vaultcord.com), add your
+   server, invite **their** bot, and set the role it gives to `Verified`. Drag their bot's role above `Verified`.
+3. Copy your verify link from their dashboard into `.env` as `VERIFY_URL=...` and restart this bot.
+4. Run `/verifypanel channel:#✅-verify`.
+5. Lock the server down: for `@everyone`, turn off **View Channels** on every category except the verify channel,
+   and turn it on for `Verified`.
+6. Optional: set `VERIFIED_ROLE_ID` in `.env` so only verified members can place orders.
 
 ## Commands
 | Command | Who (default) | What |
 |---|---|---|
-| `/orderpanel [channel:]` | Manage Server | Post the submit-orders panel (here, or in the channel you pick) |
+| `/orderpanel [channel:]` | Manage Server | Post the order panel |
 | `/supportpanel [channel:]` | Manage Server | Post the support tickets panel |
+| `/verifypanel [channel:]` | Manage Server | Post the verify panel (needs `VERIFY_URL`) |
 | `/myorders` | everyone | Your recent orders and their status |
 | `/cancel id:` | everyone | Cancel your order before it's accepted |
 | `/purge amount: [user:]` | Manage Messages | Delete up to 100 recent messages (optionally from one user) |
@@ -54,7 +76,7 @@ mute/ban someone with an equal or higher role.
 3. In your server create:
    - a `submit-orders` channel (everyone can see it, but turn off Send Messages so only the panel is there)
    - a staff-only `orders` channel
-   - a `Tickets` category (staff-only by default; the bot adds the customer per ticket)
+   - optionally a `Tickets` category (if you don't, the bot creates a staff-only `🎫 Tickets` one on startup)
    - an `Orderer` role (and optionally a `Support` role)
    - a `support` channel for the support panel
 4. Configure and run (Node 20.6+):
@@ -65,7 +87,7 @@ mute/ban someone with an equal or higher role.
    npm run deploy                     # registers slash commands; rerun after changing src/commands.js
    npm start
    ```
-5. Run `/orderpanel channel:#submit-orders` and `/supportpanel channel:#support`. Run them again any time to
+5. Run `/orderpanel channel:#submit-orders` and `/supportpanel channel:#support` (and `/verifypanel`, see above). Run them again any time to
    repost a panel (delete the old one by hand).
 
 Members need **DMs from server members** turned on to send their screenshot; the bot tells them if it can't DM them.

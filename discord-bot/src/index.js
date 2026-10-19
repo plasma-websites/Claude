@@ -5,8 +5,8 @@ import { createOrderHandlers } from './orders.js';
 import { SERVICES, STATUS } from './services.js';
 import { Store } from './store.js';
 import { createSupportHandlers } from './support.js';
-import { editMessage, ephemeral } from './util.js';
-import { orderEmbed, ordersPanel, staffButtons, supportPanel } from './views.js';
+import { editMessage, ensureTicketCategory, ephemeral } from './util.js';
+import { orderEmbed, ordersPanel, staffButtons, supportPanel, verifyPanel } from './views.js';
 
 const config = loadConfig(['DISCORD_TOKEN', 'GUILD_ID', 'STAFF_ORDERS_CHANNEL_ID', 'ORDERER_ROLE_ID']);
 const promos = loadPromos();
@@ -26,25 +26,30 @@ async function handleCommand(interaction) {
 
   switch (name) {
     case 'orderpanel':
-    case 'supportpanel': {
+    case 'supportpanel':
+    case 'verifypanel': {
+      if (name === 'verifypanel' && !config.verifyUrl) {
+        return interaction.reply(ephemeral('Set `VERIFY_URL` in `.env` to your RestoreCord / VaultCord verify link first, then restart the bot.'));
+      }
       const channel = interaction.options.getChannel('channel') ?? interaction.channel;
+      const panel = { orderpanel: () => ordersPanel(promos), supportpanel: supportPanel, verifypanel: () => verifyPanel(config.verifyUrl) }[name]();
       try {
-        await channel.send(name === 'orderpanel' ? ordersPanel() : supportPanel());
+        await channel.send(panel);
       } catch {
         return interaction.reply(ephemeral(`I can't post in ${channel} — give me View Channel, Send Messages and Embed Links there.`));
       }
-      return interaction.reply(ephemeral(`Panel posted in ${channel}.`));
+      return interaction.reply(ephemeral(`✅ Panel posted in ${channel}.`));
     }
 
     case 'myorders': {
       const list = store.recentOrdersFor(interaction.user.id);
-      if (!list.length) return interaction.reply(ephemeral('You have no orders yet.'));
+      if (!list.length) return interaction.reply(ephemeral('📭 You have no orders yet.'));
       const lines = list.map((o) => {
         const s = STATUS[o.status];
         const ticket = o.ticketChannelId && ['accepted', 'completed'].includes(o.status) ? ` — <#${o.ticketChannelId}>` : '';
         return `**#${o.id}** ${SERVICES[o.service].emoji} ${SERVICES[o.service].label}: ${s.emoji} ${s.label}${ticket}`;
       });
-      return interaction.reply(ephemeral(lines.join('\n')));
+      return interaction.reply(ephemeral(`📦 **Your recent orders**\n${lines.join('\n')}`));
     }
 
     case 'cancel': {
@@ -55,7 +60,7 @@ async function handleCommand(interaction) {
         embeds: [orderEmbed(order)],
         components: staffButtons(order, config.guildId),
       });
-      return interaction.reply(ephemeral(`Order #${order.id} cancelled.`));
+      return interaction.reply(ephemeral(`🗑️ Order #${order.id} cancelled.`));
     }
   }
 }
@@ -82,16 +87,24 @@ client.on(Events.MessageCreate, (message) => {
 // If someone deletes a ticket channel by hand, close its order/support ticket too.
 client.on(Events.ChannelDelete, (channel) => {
   const order = store.orderByTicket(channel.id);
-  if (order && ['accepted', 'completed'].includes(order.status)) {
-    const { order: closed } = store.close(order.id);
-    editMessage(client, closed.staffChannelId, closed.staffMessageId, { embeds: [orderEmbed(closed)], components: staffButtons(closed, config.guildId) });
+  if (order) {
+    if (['accepted', 'completed'].includes(order.status)) store.close(order.id);
+    const gone = store.updateOrder(order.id, { ticketChannelId: null, ticketMessageId: null }); // drops the "Open ticket" link
+    editMessage(client, gone.staffChannelId, gone.staffMessageId, { embeds: [orderEmbed(gone)], components: staffButtons(gone, config.guildId) });
   }
   const ticket = store.supportByChannel(channel.id);
   if (ticket?.status === 'open') store.updateSupport(ticket.id, { status: 'closed' });
 });
 
-client.once(Events.ClientReady, (c) => {
+client.once(Events.ClientReady, async (c) => {
   console.log(`Logged in as ${c.user.tag}`);
+  try {
+    const guild = await c.guilds.fetch(config.guildId);
+    config.ticketCategoryId = await ensureTicketCategory(guild, config);
+    config.supportCategoryId ||= config.ticketCategoryId;
+  } catch (err) {
+    console.error('Could not set up the ticket category — tickets will be created outside a category:', err.message);
+  }
   const tick = () => orders.autoClose().catch((err) => console.error('Auto-close failed:', err));
   tick(); // catch up on tickets that came due while the bot was offline
   setInterval(tick, 60 * 1000);

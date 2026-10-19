@@ -52,4 +52,43 @@ export async function deleteChannel(client, channelId, reason) {
   }
 }
 
-export const pad = (n) => String(n).padStart(4, '0');
+// Renames are rate limited by Discord (2 per channel per 10 minutes), so don't
+// make the caller wait for them.
+export function renameChannel(client, channelId, name) {
+  client.channels
+    .fetch(channelId)
+    .then((channel) => channel.setName(name))
+    .catch((err) => console.error(`Could not rename channel ${channelId}:`, err.message));
+}
+
+// Takes the member's access away from a ticket channel (staff keep it).
+export async function lockTicket(client, channelId, userId) {
+  try {
+    const channel = await client.channels.fetch(channelId);
+    await channel.permissionOverwrites.edit(userId, { ViewChannel: false }, { type: OverwriteType.Member });
+  } catch (err) {
+    console.error(`Could not lock channel ${channelId}:`, err.message);
+  }
+}
+
+// Uses TICKET_CATEGORY_ID if set, otherwise finds a category with "ticket" in
+// its name, otherwise creates a staff-only "🎫 Tickets" category.
+export async function ensureTicketCategory(guild, config) {
+  if (config.ticketCategoryId) return config.ticketCategoryId;
+  const channels = await guild.channels.fetch();
+  let category = channels.find((c) => c?.type === ChannelType.GuildCategory && /ticket/i.test(c.name));
+  if (!category) {
+    const staffRoles = [...new Set([config.ordererRoleId, config.supportRoleId])];
+    category = await guild.channels.create({
+      name: '🎫 Tickets',
+      type: ChannelType.GuildCategory,
+      permissionOverwrites: [
+        { id: guild.roles.everyone.id, type: OverwriteType.Role, deny: [P.ViewChannel] },
+        { id: guild.client.user.id, type: OverwriteType.Member, allow: [...MEMBER_PERMS, P.ManageChannels] },
+        ...staffRoles.map((id) => ({ id, type: OverwriteType.Role, allow: MEMBER_PERMS })),
+      ],
+    });
+    console.log(`Created ticket category "${category.name}" (${category.id}).`);
+  }
+  return category.id;
+}

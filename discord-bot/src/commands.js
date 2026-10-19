@@ -12,11 +12,12 @@ const panelCommand = (name, description) =>
 export const commands = [
   panelCommand('orderpanel', 'Post the submit-orders panel'),
   panelCommand('supportpanel', 'Post the support tickets panel'),
+  panelCommand('verifypanel', 'Post the verify panel (RestoreCord / VaultCord link)'),
   new SlashCommandBuilder().setName('myorders').setDescription('Show your recent orders'),
   new SlashCommandBuilder()
     .setName('cancel')
     .setDescription('Cancel one of your orders that hasn\'t been accepted yet')
-    .addIntegerOption((o) => o.setName('id').setDescription('Order number').setRequired(true).setMinValue(1)),
+    .addIntegerOption((o) => o.setName('id').setDescription('Order number, e.g. 483920').setRequired(true).setMinValue(1)),
 
   // Moderation
   new SlashCommandBuilder()
