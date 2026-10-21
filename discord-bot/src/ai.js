@@ -192,7 +192,7 @@ export function createAiHandlers({ client, config, store, promos }) {
   }
 
   async function chatReply(message, { withOrders = false } = {}) {
-    if (!takeSlot(message.author.id, message.channelId)) return;
+    if (!takeSlot(message.author.id, message.channelId)) return void message.react('⏳').catch(() => {}); // on cooldown
     await message.channel.sendTyping().catch(() => {});
     const name = message.member?.displayName ?? message.author.username;
     const context = [
@@ -223,8 +223,18 @@ export function createAiHandlers({ client, config, store, promos }) {
 
   // Decides whether a server message is for the bot, and which personality answers.
   async function handleMessage(message) {
-    if (!enabled || !message.content?.trim()) return;
-    const mentioned = message.mentions.users.has(client.user.id);
+    if (!enabled) return;
+    // "@food hub" can pick the bot's own role (same name) instead of the bot, so count both.
+    const botRoleId = message.guild?.members?.me?.roles?.botRole?.id;
+    const roleMentioned = Boolean(botRoleId && message.mentions.roles.has(botRoleId));
+    if (!message.content?.trim()) {
+      // Without the Message Content intent Discord hides the text of role pings.
+      if (roleMentioned && takeSlot(message.author.id, message.channelId)) {
+        await message.reply(sanitizeReply('i can\'t read role pings rn 😭 ping me (the bot, not the role) or reply to my message fr')).catch(() => {});
+      }
+      return;
+    }
+    const mentioned = message.mentions.users.has(client.user.id) || roleMentioned;
     const repliedToBot = message.mentions.repliedUser?.id === client.user.id;
 
     const support = store.supportByChannel(message.channelId);
@@ -248,9 +258,9 @@ export function createAiHandlers({ client, config, store, promos }) {
       return;
     }
 
-    const inChat = config.chatChannelIds.includes(message.channelId);
-    const calledByName = /\bfood\s?hub\b/i.test(message.content);
-    if (inChat && (mentioned || repliedToBot || calledByName)) return chatReply(message);
+    // A direct ping or reply gets an answer in any channel; saying "food hub" only in the chat channels.
+    if (mentioned || repliedToBot) return chatReply(message);
+    if (config.chatChannelIds.includes(message.channelId) && /\bfood\s?hub\b/i.test(message.content)) return chatReply(message);
   }
 
   // Support ticket buttons: Ask a follow-up / Talk to a human.

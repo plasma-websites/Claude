@@ -62,7 +62,7 @@ Set `ANTHROPIC_API_KEY` (from console.anthropic.com) and restart. There are two 
   fallback is on, so if Sonnet declines a question another model answers instead.
 - **Chat bot** (Claude Haiku 5.5): slangy, 😭-heavy Discord personality. In the channels listed in `CHAT_CHANNEL_IDS`
   it replies when someone @mentions it, replies to it, or says "food hub". In order tickets it replies when
-  @mentioned or replied to.
+  @mentioned or replied to. A direct @ping (of the bot or its role) gets an answer in any channel.
 
 Spam protection: 6s cooldown per person, 3s per channel, 20 replies a minute and `AI_DAILY_LIMIT` (default 1000) a day.
 It can never ping roles, @everyone or @here, and pings at most one person per message.

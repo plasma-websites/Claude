@@ -46,6 +46,7 @@ const intents = [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, Gate
 if (process.env.ANTHROPIC_API_KEY) {
   if (await messageContentEnabled()) intents.push(GatewayIntentBits.MessageContent);
   else console.log('Message Content intent is off: Food Hub AI will only answer @mentions and replies. Turn it on in the Developer Portal → Bot.');
+  console.log(`Food Hub AI on. Chat channels: ${config.chatChannelIds.join(', ') || 'none (set CHAT_CHANNEL_IDS) — it still answers direct pings anywhere'}`);
 }
 const client = new Client({
   intents,
