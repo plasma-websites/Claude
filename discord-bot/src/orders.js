@@ -17,12 +17,16 @@ import {
   say,
 } from './util.js';
 import {
+  answerEmbed,
+  answerModal,
+  askQuestionModal,
   channelUrl,
   completedEmbed,
   detailsModal,
   orderEmbed,
   orderTicketName,
   promoPicker,
+  questionDm,
   staffButtons,
   ticketButtons,
   ticketWelcome,
@@ -124,11 +128,13 @@ export function createOrderHandlers({ client, config, store, promos }) {
 
   async function submitDetails(interaction, serviceKey, promoValue, answer) {
     const service = SERVICES[serviceKey];
-    const promo = promos[serviceKey][Number(promoValue)] ?? null;
+    const promo = promos[serviceKey][Number(promoValue)] ?? promos[serviceKey][0];
     const details = Object.fromEntries(service.fields.map((f) => [f.id, interaction.fields.getTextInputValue(f.id)]));
     awaitingScreenshot.set(interaction.user.id, {
       service: serviceKey,
-      promo,
+      promo: promo.name,
+      fee: promo.fee,
+      customerName: interaction.user.username,
       vc: answer === 'yes',
       details,
       expiresAt: Date.now() + SCREENSHOT_WAIT_MS,
@@ -158,8 +164,13 @@ export function createOrderHandlers({ client, config, store, promos }) {
 
   async function handleDm(message) {
     const pending = awaitingScreenshot.get(message.author.id);
-    if (!pending) return;
     const reply = (text, color = COLORS.warning) => message.reply(say(text, {}, { color }));
+    if (!pending) {
+      // Not sending a screenshot: maybe they're typing the answer to an orderer's question.
+      const q = store.openQuestionFor(message.author.id);
+      if (q && message.content.trim()) return recordAnswer(q.id, message.content.trim(), (text, color) => reply(text, color));
+      return;
+    }
     if (Date.now() > pending.expiresAt) {
       awaitingScreenshot.delete(message.author.id);
       return reply('⏰ That took too long! Please start a new order from the order channel. 🔄');
@@ -194,6 +205,62 @@ export function createOrderHandlers({ client, config, store, promos }) {
         { title: '✅ Order received!', color: COLORS.success },
       ),
     );
+  }
+
+  // --- staff channel: ask the customer a question ---
+
+  async function askQuestion(interaction, id) {
+    if (!isStaff(interaction)) return interaction.reply(ephemeral('Only orderers can ask customers questions.', {}, { color: COLORS.danger }));
+    const order = store.getOrder(id);
+    if (!order) return interaction.reply(ephemeral('That order no longer exists.'));
+    return interaction.showModal(askQuestionModal(id));
+  }
+
+  async function sendQuestion(interaction, id) {
+    const order = store.getOrder(id);
+    if (!order) return interaction.reply(ephemeral('That order no longer exists.'));
+    const q = store.createQuestion({
+      orderId: id,
+      askerId: interaction.user.id,
+      customerId: order.customerId,
+      question: interaction.fields.getTextInputValue('question').trim(),
+    });
+    const sent = await dm(client, order.customerId, questionDm(order, q));
+    if (!sent) {
+      store.answerQuestion(q.id, '(not delivered — customer has DMs closed)');
+      return interaction.reply(ephemeral(`❌ Couldn't DM <@${order.customerId}> — their DMs are closed.`, {}, { color: COLORS.danger }));
+    }
+    return interaction.reply(ephemeral(`📨 Question sent to <@${order.customerId}>! Their answer will be posted under this order and you'll be pinged.`, {}, { color: COLORS.success }));
+  }
+
+  // Saves the customer's answer and posts it under the order in the staff channel.
+  async function recordAnswer(questionId, text, respond) {
+    const result = store.answerQuestion(questionId, text);
+    if (result.error) return respond(result.error, COLORS.warning);
+    const q = result.question;
+    const order = store.getOrder(q.orderId);
+    try {
+      const channel = await client.channels.fetch(order.staffChannelId ?? config.staffChannelId);
+      const replyTo = order.staffMessageId ? { messageReference: order.staffMessageId, failIfNotExists: false } : undefined;
+      await channel.send({ content: `<@${q.askerId}>`, allowedMentions: { users: [q.askerId] }, embeds: [answerEmbed(order, q)], reply: replyTo });
+    } catch (err) {
+      console.error(`Could not post answer for order #${q.orderId}:`, err.message);
+    }
+    return respond(`✅ Thanks! Your answer has been sent to the orderer for order **#${q.orderId}**.`, COLORS.success);
+  }
+
+  async function handleQuestion(interaction) {
+    const [, action, id] = interaction.customId.split(':');
+    const q = store.getQuestion(Number(id));
+    if (!q) return interaction.reply(ephemeral('That question no longer exists.'));
+    if (interaction.user.id !== q.customerId) return interaction.reply(ephemeral('Only the customer can answer this.', {}, { color: COLORS.danger }));
+    if (action === 'answer') {
+      if (q.answer) return interaction.reply(ephemeral('You\'ve already answered that question. 👍'));
+      return interaction.showModal(answerModal(q));
+    }
+    if (action === 'submit') {
+      return recordAnswer(q.id, interaction.fields.getTextInputValue('answer').trim(), (text, color) => interaction.reply(ephemeral(text, {}, { color })));
+    }
   }
 
   // --- staff channel: accept ---
@@ -347,6 +414,8 @@ export function createOrderHandlers({ client, config, store, promos }) {
       case 'vc': return pickVc(interaction, a, b, c);
       case 'details': return submitDetails(interaction, a, b, c);
       case 'accept': return accept(interaction, Number(a));
+      case 'ask': return askQuestion(interaction, Number(a));
+      case 'askq': return sendQuestion(interaction, Number(a));
       // Older order posts may still show a Decline button; declining was removed.
       case 'decline': return interaction.reply(ephemeral('Declining orders has been removed — accept it, or ask the customer to `/cancel` it.'));
       case 'forfeit': return forfeit(interaction, Number(a));
@@ -356,5 +425,5 @@ export function createOrderHandlers({ client, config, store, promos }) {
     }
   }
 
-  return { handleComponent, handleDm, autoClose };
+  return { handleComponent, handleDm, handleQuestion, autoClose };
 }

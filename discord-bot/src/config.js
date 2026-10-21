@@ -3,16 +3,23 @@ import { SERVICES } from './services.js';
 
 const root = new URL('..', import.meta.url).pathname;
 
-// Promo options per company, shown in the promo dropdown.
+// Promo options per company, shown in the promo dropdown. Each entry is a name,
+// or { "name": "...", "fee": 2.5 } when that promo has its own fee. Returns
+// { serviceKey: [{ name, fee }] }.
 export function loadPromos(file = `${root}promos.json`) {
-  const promos = JSON.parse(fs.readFileSync(file, 'utf8'));
-  for (const key of Object.keys(SERVICES)) {
-    const list = promos[key] ?? [];
-    if (!Array.isArray(list) || list.some((p) => typeof p !== 'string' || !p.trim() || p.length > 100)) {
-      throw new Error(`${file}: "${key}" must be a list of promo names (1-100 characters each)`);
-    }
-    if (list.length < 1 || list.length > 25) throw new Error(`${file}: "${key}" needs 1-25 promos (Discord menu limit)`);
-    promos[key] = list;
+  const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
+  const promos = {};
+  for (const [key, service] of Object.entries(SERVICES)) {
+    const list = raw[key] ?? [];
+    if (!Array.isArray(list) || list.length < 1 || list.length > 25) throw new Error(`${file}: "${key}" needs 1-25 promos (Discord menu limit)`);
+    promos[key] = list.map((entry) => {
+      const { name, fee = service.fee } = typeof entry === 'string' ? { name: entry } : entry;
+      if (typeof name !== 'string' || !name.trim() || name.length > 100) {
+        throw new Error(`${file}: "${key}" must be a list of promo names (1-100 characters each)`);
+      }
+      if (typeof fee !== 'number' || !(fee >= 0)) throw new Error(`${file}: promo "${name}" for "${key}" needs a fee (the service has no default fee)`);
+      return { name, fee };
+    });
   }
   return promos;
 }
@@ -35,6 +42,7 @@ export function loadConfig(required) {
     supportCategoryId: process.env.SUPPORT_CATEGORY_ID, // falls back to the ticket category at startup
     completedChannelId: process.env.COMPLETED_CHANNEL_ID || null,
     vouchChannelId: process.env.VOUCH_CHANNEL_ID || null,
+    chatChannelIds: (process.env.CHAT_CHANNEL_IDS ?? '').split(',').map((s) => s.trim()).filter(Boolean),
     verifyUrl: process.env.VERIFY_URL || null,
     verifiedRoleId: process.env.VERIFIED_ROLE_ID || null,
     autoCloseHours: Number(process.env.AUTO_CLOSE_HOURS) || 2,

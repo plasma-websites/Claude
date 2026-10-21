@@ -133,3 +133,22 @@ test('payment requests', () => {
   assert.equal(store.updatePayment(p.id, { status: 'marked_paid' }).status, 'marked_paid');
   assert.equal(new Store(store.file).getPayment(p.id).amount, 12.5);
 });
+
+test('orderer questions: answered once, latest open one found for DM answers', () => {
+  const store = tempStore();
+  const a = store.createQuestion({ orderId: 1, askerId: 's', customerId: 'c', question: 'which flat?' });
+  const b = store.createQuestion({ orderId: 1, askerId: 's', customerId: 'c', question: 'any allergies?' });
+  assert.equal(store.openQuestionFor('c').id, b.id);
+  assert.equal(store.answerQuestion(b.id, 'none').question.answer, 'none');
+  assert.match(store.answerQuestion(b.id, 'again').error, /already answered/);
+  assert.equal(store.openQuestionFor('c').id, a.id);
+  store.answerQuestion(a.id, 'flat 2');
+  assert.equal(store.openQuestionFor('c'), null);
+});
+
+test('orders keep fee and customer name', () => {
+  const store = tempStore();
+  const o = store.createOrder({ service: 'ubertrain', promo: '5 off', fee: 1, vc: false, details: {}, customerId: 'c', customerName: 'plasma' });
+  assert.equal(new Store(store.file).getOrder(o.id).fee, 1);
+  assert.equal(o.customerName, 'plasma');
+});

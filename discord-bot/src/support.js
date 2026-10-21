@@ -13,7 +13,7 @@ export function createSupportHandlers({ client, config, store, ai }) {
 
   async function submit(interaction) {
     if (store.openSupportFor(interaction.user.id)) return interaction.reply(ephemeral('🎫 You already have an open support ticket.'));
-    const ticket = store.createSupport({ userId: interaction.user.id, reason: interaction.fields.getTextInputValue('reason') });
+    const ticket = store.createSupport({ userId: interaction.user.id, userName: interaction.user.username, reason: interaction.fields.getTextInputValue('reason') });
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     let channel;
     try {
@@ -26,7 +26,7 @@ export function createSupportHandlers({ client, config, store, ai }) {
       const embeds = [supportEmbed(ticket)];
       if (ai?.enabled) {
         embeds.push(
-          panel('🤖 While you wait, our **AI assistant** will try to answer your question below. Press **Talk to a human** any time to get staff.', {
+          panel('🤖 While you wait, our **support assistant** will answer below — reply here or press **Ask a follow-up**. Press **Talk to a human** any time to get staff.', {
             color: 0x9b59b6,
           }),
         );
@@ -44,7 +44,7 @@ export function createSupportHandlers({ client, config, store, ai }) {
       return interaction.editReply(say('😔 Sorry, the ticket could not be created. Please contact a staff member directly.', {}, { color: COLORS.danger }));
     }
     await interaction.editReply(say(`✅ Your ticket is open 👉 <#${channel.id}>`, {}, { color: COLORS.success }));
-    if (ai?.enabled) ai.answerInTicket(channel, store.supportByChannel(channel.id), ticket.userId, ticket.reason, { showQuestion: false });
+    if (ai?.enabled) ai.answerOpening(channel, store.supportByChannel(channel.id));
   }
 
   // Locks the ticket: the member loses access, staff keep it until they delete it.

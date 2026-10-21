@@ -8,9 +8,10 @@ import {
   TextInputBuilder,
   TextInputStyle,
 } from 'discord.js';
-import { PAYMENT_METHODS, SERVICES, STATUS, SUPPORT_STATUS, money } from './services.js';
+import { PAYMENT_METHODS, SERVICES, STATUS, SUPPORT_STATUS, feeSummary, money, orderFee } from './services.js';
 
 const BRAND = 0x5865f2;
+const COLORS_SUCCESS = 0x57f287;
 const DIVIDER = '━━━━━━━━━━━━━━━━━━━━━━━━';
 
 const row = (...components) => new ActionRowBuilder().addComponents(...components);
@@ -22,9 +23,19 @@ const linkButton = (url, label, emoji) => new ButtonBuilder().setURL(url).setLab
 const timestamp = (iso, style = 'R') => `<t:${Math.floor(Date.parse(iso) / 1000)}:${style}>`;
 export const channelUrl = (guildId, channelId) => `https://discord.com/channels/${guildId}/${channelId}`;
 
-// Ticket channel names carry the status emoji, e.g. 🔵-order-483920.
-export const orderTicketName = (order) => `${STATUS[order.status].emoji}-order-${order.id}`;
-export const supportTicketName = (ticket) => `${SUPPORT_STATUS[ticket.status].emoji}-support-${ticket.id}`;
+// Ticket channel names carry the status emoji, number and customer's username,
+// e.g. 🔵-order-483920-plasma. Discord only allows a-z, 0-9, - and _ here.
+const slug = (name) => (name ?? '').toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 32);
+const withName = (base, name) => (slug(name) ? `${base}-${slug(name)}` : base);
+export const orderTicketName = (order) => withName(`${STATUS[order.status].emoji}-order-${order.id}`, order.customerName);
+export const supportTicketName = (ticket) => withName(`${SUPPORT_STATUS[ticket.status].emoji}-support-${ticket.id}`, ticket.userName);
+
+// `5 off` • `10 off` · 💷 Fee £2.50 — or per-promo fees when they differ.
+function promoLine(list) {
+  const sameFee = list.every((p) => p.fee === list[0].fee);
+  if (sameFee) return `${list.map((p) => `\`${p.name}\``).join(' • ')} · 💷 Fee **${money(list[0].fee)}**`;
+  return list.map((p) => `\`${p.name}\` (💷 **${money(p.fee)}**)`).join(' • ');
+}
 
 // --- order flow (submit-orders channel) ---
 
@@ -36,7 +47,7 @@ export function ordersPanel(promos, online = {}) {
   const menu = Object.entries(SERVICES)
     .map(([key, s]) =>
       [
-        `${s.emoji} **${s.label}** — ${promos[key].map((p) => `\`${p}\``).join(' • ')} · 💷 Fee **${money(s.fee)}**`,
+        `${s.emoji} **${s.label}** — ${promoLine(promos[key])}`,
         onlineLine(online[key]),
       ].join('\n'),
     )
@@ -73,7 +84,7 @@ export function ordersPanel(promos, online = {}) {
         label: s.label,
         value,
         emoji: s.emoji,
-        description: `Fee ${money(s.fee)} · ${online[value]?.length ? `🟢 ${online[value].length} online` : '🔴 nobody online'} · ${promos[value].join(', ')}`.slice(0, 100),
+        description: `Fee ${feeSummary(promos[value])} · ${online[value]?.length ? `🟢 ${online[value].length} online` : '🔴 nobody online'} · ${promos[value].map((p) => p.name).join(', ')}`.slice(0, 100),
       })),
     );
   return { embeds: [embed], components: [row(select)] };
@@ -84,13 +95,13 @@ export function promoPicker(serviceKey, promos, onlineIds = []) {
   const menu = new StringSelectMenuBuilder()
     .setCustomId(`order:promo:${serviceKey}`)
     .setPlaceholder('🏷️ Select your promo…')
-    .addOptions(promos.map((label, i) => ({ label, value: String(i), emoji: '🏷️' })));
+    .addOptions(promos.map((p, i) => ({ label: p.name, value: String(i), emoji: '🏷️', description: `Service fee ${money(p.fee)}` })));
   const embed = new EmbedBuilder()
     .setColor(service.color)
     .setTitle(`${service.emoji} ${service.label} selected!`)
     .setDescription(
       [
-        `💷 Service fee: **${money(service.fee)}**`,
+        `💷 Service fee: **${feeSummary(promos)}**`,
         onlineIds.length
           ? `🟢 Online now: ${onlineIds.map((id) => `<@${id}>`).join(', ')}`
           : '🔴 **Nobody is online for this service right now** — you can still order and it\'ll be picked up as soon as someone is.',
@@ -138,7 +149,7 @@ export function orderEmbed(order) {
       { name: '🏢 Company', value: service.label, inline: true },
       { name: '🏷️ Promo', value: order.promo ?? 'None', inline: true },
       { name: '🎙️ VC', value: order.vc ? '✅ Yes' : '✖️ No', inline: true },
-      { name: '💷 Service fee', value: money(SERVICES[order.service].fee), inline: true },
+      { name: '💷 Service fee', value: money(orderFee(order)), inline: true },
       { name: '🕒 Placed', value: timestamp(order.createdAt), inline: true },
     )
     .setFooter({ text: `Order #${order.id}${order.screenshot ? ' • 📸 screenshot attached' : ''}` })
@@ -158,7 +169,12 @@ export function orderEmbed(order) {
 // Buttons under the order in the staff channel.
 export function staffButtons(order, guildId) {
   if (order.status === 'pending') {
-    return [row(button(`order:accept:${order.id}`, 'Accept order', ButtonStyle.Success, '✅'))];
+    return [
+      row(
+        button(`order:accept:${order.id}`, 'Accept order', ButtonStyle.Success, '✅'),
+        button(`order:ask:${order.id}`, 'Ask question', ButtonStyle.Secondary, '❓'),
+      ),
+    ];
   }
   if (order.ticketChannelId && ['accepted', 'completed', 'closed'].includes(order.status)) {
     return [row(linkButton(channelUrl(guildId, order.ticketChannelId), 'Open ticket', '🎫'))];
@@ -193,7 +209,7 @@ export function ticketWelcome(order) {
     .setDescription(
       [
         `🧑‍🍳 <@${order.ordererId}> has accepted your **${service.emoji} ${service.label}** order **#${order.id}** and will look after you here.`,
-        `💷 Service fee: **${money(service.fee)}**`,
+        `💷 Service fee: **${money(orderFee(order))}**`,
         '💬 Feel free to ask any questions in this channel.',
       ].join('\n'),
     );
@@ -579,17 +595,6 @@ export function paymentButtons(payment, destination) {
 
 // --- Food Hub AI (support tickets) ---
 
-export function aiAnswerEmbed(answer, question) {
-  const embed = new EmbedBuilder()
-    .setTitle('🤖 Food Hub AI Assistant')
-    .setColor(0x9b59b6)
-    .setDescription(answer.slice(0, 4000))
-    .setFooter({ text: '🤖 AI answers can be wrong • Press "Talk to a human" any time for staff' })
-    .setTimestamp();
-  if (question) embed.setAuthor({ name: `❓ ${question.slice(0, 250)}` });
-  return embed;
-}
-
 export function aiButtons() {
   return [
     row(
@@ -602,7 +607,7 @@ export function aiButtons() {
 export function aiQuestionModal() {
   return new ModalBuilder()
     .setCustomId('ai:question')
-    .setTitle('💬 Ask Food Hub AI')
+    .setTitle('💬 Ask Food Hub support')
     .addComponents(
       row(
         new TextInputBuilder()
@@ -613,4 +618,62 @@ export function aiQuestionModal() {
           .setMaxLength(1000),
       ),
     );
+}
+
+// --- orderer questions (staff channel -> customer DMs) ---
+
+export function askQuestionModal(orderId) {
+  return new ModalBuilder()
+    .setCustomId(`order:askq:${orderId}`)
+    .setTitle(`❓ Question for order #${orderId}`)
+    .addComponents(
+      row(
+        new TextInputBuilder()
+          .setCustomId('question')
+          .setLabel('What do you want to ask the customer?')
+          .setStyle(TextInputStyle.Paragraph)
+          .setRequired(true)
+          .setMaxLength(500),
+      ),
+    );
+}
+
+export function questionDm(order, q) {
+  const service = SERVICES[order.service];
+  const embed = new EmbedBuilder()
+    .setTitle(`❓ Question about your ${service.label} order #${order.id}`)
+    .setColor(service.color)
+    .setDescription(
+      [
+        `🧑‍🍳 <@${q.askerId}> asked:`,
+        `> ${q.question.replace(/\n/g, '\n> ')}`,
+        DIVIDER,
+        '✍️ Press **Answer** below, or just **type your answer here** in DMs.',
+      ].join('\n'),
+    )
+    .setTimestamp(new Date(q.createdAt));
+  return { embeds: [embed], components: [row(button(`q:answer:${q.id}`, 'Answer', ButtonStyle.Primary, '✍️'))] };
+}
+
+export function answerModal(q) {
+  return new ModalBuilder()
+    .setCustomId(`q:submit:${q.id}`)
+    .setTitle('✍️ Your answer')
+    .addComponents(
+      row(new TextInputBuilder().setCustomId('answer').setLabel('Answer').setStyle(TextInputStyle.Paragraph).setRequired(true).setMaxLength(1000)),
+    );
+}
+
+export function answerEmbed(order, q) {
+  const service = SERVICES[order.service];
+  return new EmbedBuilder()
+    .setTitle(`💬 Customer answered — ${service.label} order #${order.id}`)
+    .setColor(COLORS_SUCCESS)
+    .addFields(
+      { name: '❓ Question', value: q.question.slice(0, 1024) },
+      { name: '✍️ Answer', value: q.answer.slice(0, 1024) },
+      { name: '👤 Customer', value: `<@${q.customerId}>`, inline: true },
+      { name: '🧑‍🍳 Asked by', value: `<@${q.askerId}>`, inline: true },
+    )
+    .setTimestamp(new Date(q.answeredAt));
 }

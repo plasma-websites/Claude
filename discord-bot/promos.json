@@ -2,5 +2,9 @@
   "uberride": ["10 off"],
   "ubereats": ["10 off", "12 off"],
   "deliveroo": ["15f20"],
-  "justeat": ["10 off"]
+  "justeat": ["10 off"],
+  "ubertrain": [
+    { "name": "5 off", "fee": 1 },
+    { "name": "10 off", "fee": 2.5 }
+  ]
 }

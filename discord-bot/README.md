@@ -1,6 +1,6 @@
 # Orders bot
 
-Discord bot for taking **Uber Rides**, **Uber Eats**, **Deliveroo** and **Just Eat** orders, with order tickets,
+Discord bot for taking **Uber Rides**, **Uber Eats**, **Deliveroo**, **Just Eat** and **Uber Trains** orders, with order tickets,
 support tickets, a verify panel and moderation commands.
 
 ## Order flow
@@ -10,15 +10,17 @@ support tickets, a verify panel and moderation commands.
    - Uber Eats: **10 off**, **12 off**
    - Deliveroo: **15f20**
    - Just Eat: **10 off**
+   - Uber Trains: **5 off**, **10 off**
 3. They answer **VC?** Yes / No.
 4. A form pops up for the address: **delivery address** for Uber Eats / Deliveroo / Just Eat, **pickup + drop-off**
-   for Uber Rides, plus optional notes.
+   for Uber Rides, from/to stations and date for Uber Trains, plus optional notes.
 5. The bot DMs them asking for their **order screenshot** (15 minutes to send it) and gives them a random
    6-digit **order number**, e.g. `#483920`.
-6. The order appears in the **staff orders channel** with the screenshot, pinging the orderer role, with
-   an **Accept order** button.
+6. The order appears in the **staff orders channel** with the screenshot, pinging the orderers online for that
+   service, with **Accept order** and **❓ Ask question** buttons. Ask question DMs the customer; they answer with
+   the button or by typing in DMs, and the answer is posted under the order, pinging whoever asked.
 7. **Accept order** (orderer role only, one person per order) creates a private ticket in the tickets category,
-   named after the order number with a status emoji, e.g. `🔵-order-483920`. Its panel shows all the order info
+   named with a status emoji, the order number and the customer's username, e.g. `🔵-order-483920-plasma`. Its panel shows all the order info
    and the screenshot.
 8. In the ticket, **Complete order** renames it `🟢-order-483920` and it **auto-closes 2 hours later**
    (`AUTO_CLOSE_HOURS`). **Close ticket** closes it immediately.
@@ -37,7 +39,8 @@ Post the **🧑‍🍳 Orderer control panel** in a staff channel with `/staffpa
 - **Payment details:** save their PayPal, Revolut and Starling links and LTC address.
 - **My status:** see what's saved.
 
-Service fees (in `src/services.js`): Uber Rides **£1.50**, Uber Eats **£2.50**, Deliveroo **£2.50**, Just Eat **£2.00**.
+Service fees (in `src/services.js`, or per promo in `promos.json`): Uber Rides **£1.50**, Uber Eats **£2.50**,
+Deliveroo **£2.50**, Just Eat **£2.00**, Uber Trains **£1.00** (5 off) / **£2.50** (10 off).
 They show on the order panel, the promo step, the order post and the ticket.
 
 In an order ticket, orderers run `/paypal amount:`, `/rev amount:`, `/starling amount:` or `/crypto amount:`. The bot
@@ -49,13 +52,24 @@ old staff post is replaced by a fresh one that re-pings, and whoever accepts nex
 
 Every message the bot sends is an embed panel (pings are sent alongside the embed).
 
-## Food Hub AI assistant (support tickets)
-Set `ANTHROPIC_API_KEY` (from console.anthropic.com) and restart. When a support ticket opens, the assistant answers
-the member's question using Food Hub's services, promos, fees, how ordering works, the rules, and that member's recent
-orders. Members can **💬 Ask a follow-up** or press **🙋 Talk to a human**, which pings the support role and turns the
-assistant off for that ticket. It can't take actions (cancel, refund, etc.) and won't ask for card or login details.
-It uses Claude Opus 5.5 at low effort with server-side fallback on refusals, max 15 questions per ticket. Each answer
-costs a fraction of a penny to a few pence depending on length; set a spending limit in the Anthropic console.
+## Food Hub AI
+Set `ANTHROPIC_API_KEY` (from console.anthropic.com) and restart. There are two personalities:
+
+- **Support assistant** (support tickets, Claude Sonnet 5.5): answers the reason the ticket was opened with, then the
+  member's messages (or **💬 Ask a follow-up**), in 1-2 sentence plain messages. It knows the services, promos, fees,
+  how ordering works, the rules and that member's recent orders. It goes quiet once staff speak in the ticket or the
+  member presses **🙋 Talk to a human** (which pings the support role). Max 15 answers per ticket. Server-side
+  fallback is on, so if Sonnet declines a question another model answers instead.
+- **Chat bot** (Claude Haiku 5.5): slangy, 😭-heavy Discord personality. In the channels listed in `CHAT_CHANNEL_IDS`
+  it replies when someone @mentions it, replies to it, or says "food hub". In order tickets it replies when
+  @mentioned or replied to.
+
+Spam protection: 6s cooldown per person, 3s per channel, 20 replies a minute and `AI_DAILY_LIMIT` (default 1000) a day.
+It can never ping roles, @everyone or @here, and pings at most one person per message.
+
+**Message Content intent:** to read normal messages (not just @mentions), turn on **Message Content Intent** in the
+Developer Portal → your app → Bot, then restart. The bot detects whether it's on; without it, the AI only answers
+@mentions, replies and the support ticket buttons.
 
 When an order is completed, a **✅ ORDER COMPLETED** post (service, customer, staff member) goes into the
 completed-orders channel if `COMPLETED_CHANNEL_ID` is set.

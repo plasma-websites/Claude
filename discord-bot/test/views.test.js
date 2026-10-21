@@ -23,13 +23,17 @@ test('order panel lists every company with its promos', () => {
   assert.ok(text.includes('`15f20`') && text.includes('`12 off`'));
   const menu = components[0].toJSON().components[0];
   assert.equal(menu.custom_id, 'order:service');
-  assert.deepEqual(menu.options.map((o) => o.value), ['uberride', 'ubereats', 'deliveroo', 'justeat']);
+  assert.deepEqual(menu.options.map((o) => o.value), ['uberride', 'ubereats', 'deliveroo', 'justeat', 'ubertrain']);
+  assert.ok(text.includes('`5 off` (💷 **£1.00**) • `10 off` (💷 **£2.50**)'), 'per-promo fees for trains');
   assert.ok(embeds[0].toJSON().description.length <= 4096);
 });
 
 test('order flow components', () => {
   const promo = views.promoPicker('ubereats', promos.ubereats).components[0].toJSON().components[0];
   assert.deepEqual(promo.options.map((o) => o.label), ['10 off', '12 off']);
+  const trains = views.promoPicker('ubertrain', promos.ubertrain).embeds[0].toJSON().description;
+  assert.ok(trains.includes('£1.00–£2.50'));
+  assert.deepEqual(views.detailsModal('ubertrain', '0', 'no').toJSON().components.map((r) => r.components[0].custom_id), ['from', 'to', 'when', 'notes']);
   assert.deepEqual(ids(views.vcPicker('deliveroo', '0').components), ['order:vc:deliveroo:0:yes', 'order:vc:deliveroo:0:no']);
   const modal = views.detailsModal('uberride', '0', 'yes').toJSON();
   assert.equal(modal.custom_id, 'order:details:uberride:0:yes');
@@ -42,13 +46,16 @@ test('order flow components', () => {
 
 test('ticket names carry status emoji and order number', () => {
   assert.equal(views.orderTicketName({ ...order, status: 'accepted' }), '🔵-order-483920');
+  assert.equal(views.orderTicketName({ ...order, status: 'accepted', customerName: 'Plasma.Dev' }), '🔵-order-483920-plasma-dev');
+  assert.equal(views.supportTicketName({ id: 813501, status: 'open', userName: 'plasma' }), '🟢-support-813501-plasma');
   assert.equal(views.orderTicketName({ ...order, status: 'completed' }), '🟢-order-483920');
   assert.equal(views.orderTicketName({ ...order, status: 'closed' }), '🔒-order-483920');
   assert.equal(views.supportTicketName({ id: 123456, status: 'open' }), '🟢-support-123456');
 });
 
 test('staff and ticket buttons follow status', () => {
-  assert.deepEqual(ids(views.staffButtons(order, 'g')), ['order:accept:483920']);
+  assert.deepEqual(ids(views.staffButtons(order, 'g')), ['order:accept:483920', 'order:ask:483920']);
+  assert.equal(views.askQuestionModal(483920).toJSON().custom_id, 'order:askq:483920');
   const accepted = { ...order, status: 'accepted', ordererId: '2', ticketChannelId: 'c' };
   assert.deepEqual(ids(views.staffButtons(accepted, 'g')), ['https://discord.com/channels/g/c']);
   assert.deepEqual(ids(views.ticketButtons(accepted)), ['order:complete:483920', 'order:forfeit:483920', 'order:close:483920', 'order:delete:483920']);
@@ -78,12 +85,17 @@ test('support, verify views and commands serialize', () => {
 });
 
 test('promo file validation', () => {
-  assert.deepEqual(promos, { uberride: ['10 off'], ubereats: ['10 off', '12 off'], deliveroo: ['15f20'], justeat: ['10 off'] });
+  const names = Object.fromEntries(Object.entries(promos).map(([k, v]) => [k, v.map((p) => `${p.name}=${p.fee}`)]));
+  assert.deepEqual(names, {
+    uberride: ['10 off=1.5'], ubereats: ['10 off=2.5', '12 off=2.5'], deliveroo: ['15f20=2.5'], justeat: ['10 off=2'], ubertrain: ['5 off=1', '10 off=2.5'],
+  });
   const bad = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'promos-')), 'p.json');
-  fs.writeFileSync(bad, JSON.stringify({ uberride: ['10 off'], ubereats: [''], deliveroo: ['x'], justeat: ['x'] }));
+  fs.writeFileSync(bad, JSON.stringify({ uberride: ['10 off'], ubereats: [''], deliveroo: ['x'], justeat: ['x'], ubertrain: [{ name: 'x', fee: 1 }] }));
   assert.throws(() => loadPromos(bad), /promo names/);
-  fs.writeFileSync(bad, JSON.stringify({ uberride: ['10 off'], ubereats: [], deliveroo: ['x'], justeat: ['x'] }));
+  fs.writeFileSync(bad, JSON.stringify({ uberride: ['10 off'], ubereats: [], deliveroo: ['x'], justeat: ['x'], ubertrain: [{ name: 'x', fee: 1 }] }));
   assert.throws(() => loadPromos(bad), /needs 1-25 promos/);
+  fs.writeFileSync(bad, JSON.stringify({ uberride: ['10 off'], ubereats: ['x'], deliveroo: ['x'], justeat: ['x'], ubertrain: ['no fee'] }));
+  assert.throws(() => loadPromos(bad), /needs a fee/);
 });
 
 test('parseDuration', () => {
@@ -179,8 +191,12 @@ test('staff panel, payment details and payment panel', async () => {
   assert.equal(commands.find((c) => c.toJSON().name === 'rev').toJSON().options[0].name, 'amount');
 });
 
-test('AI views', () => {
+test('AI views and reply sanitising', async () => {
   assert.deepEqual(ids(views.aiButtons()), ['ai:ask', 'ai:human']);
   assert.equal(views.aiQuestionModal().toJSON().custom_id, 'ai:question');
-  assert.equal(views.aiAnswerEmbed('hi', 'q?').toJSON().author.name, '❓ q?');
+  const { sanitizeReply } = await import('../src/ai.js');
+  const r = sanitizeReply('yo @everyone and @here <@&123> ping <@111> and <@222> 😭');
+  assert.ok(!r.content.includes('@everyone') && !r.content.includes('@here') && !r.content.includes('<@&'));
+  assert.deepEqual(r.allowedMentions, { parse: [], users: ['111'], repliedUser: false });
+  assert.ok(sanitizeReply('a'.repeat(1000)).content.length <= 401);
 });

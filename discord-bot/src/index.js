@@ -1,4 +1,4 @@
-import { Client, Events, GatewayIntentBits, MessageFlags, Partials } from 'discord.js';
+import { ApplicationFlagsBitField, Client, Events, GatewayIntentBits, MessageFlags, Partials, REST, Routes } from 'discord.js';
 import { createAiHandlers } from './ai.js';
 import { loadConfig, loadPromos } from './config.js';
 import { moderationCommands } from './moderation.js';
@@ -29,8 +29,26 @@ import {
 const config = loadConfig(['DISCORD_TOKEN', 'GUILD_ID', 'STAFF_ORDERS_CHANNEL_ID', 'ORDERER_ROLE_ID']);
 const promos = loadPromos();
 const store = new Store(config.dataFile);
+// Reading normal (non-@mention) messages needs the privileged Message Content
+// intent. Only ask for it when it's switched on in the Developer Portal,
+// otherwise Discord refuses the login.
+async function messageContentEnabled() {
+  try {
+    const app = await new REST().setToken(config.token).get(Routes.currentApplication());
+    const flags = new ApplicationFlagsBitField(app.flags);
+    return flags.any([ApplicationFlagsBitField.Flags.GatewayMessageContent, ApplicationFlagsBitField.Flags.GatewayMessageContentLimited]);
+  } catch {
+    return false;
+  }
+}
+
+const intents = [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.DirectMessages];
+if (process.env.ANTHROPIC_API_KEY) {
+  if (await messageContentEnabled()) intents.push(GatewayIntentBits.MessageContent);
+  else console.log('Message Content intent is off: Food Hub AI will only answer @mentions and replies. Turn it on in the Developer Portal → Bot.');
+}
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.DirectMessages],
+  intents,
   partials: [Partials.Channel], // needed to receive DMs
 });
 
@@ -143,6 +161,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     if (interaction.customId.startsWith('staff:')) return await staff.handleComponent(interaction);
     if (interaction.customId.startsWith('pay:')) return await staff.handlePaymentButton(interaction);
     if (interaction.customId.startsWith('ai:')) return await ctx.ai.handleComponent(interaction);
+    if (interaction.customId.startsWith('q:')) return await orders.handleQuestion(interaction);
     if (interaction.customId === 'why:hub') return await interaction.reply({ embeds: [whyFoodHubEmbed(WHY_FOOD_HUB)], flags: MessageFlags.Ephemeral });
     if (interaction.customId === 'why:foodplug') {
       return await interaction.reply({ embeds: [whyOverFoodplugEmbed(WHY_OVER_FOODPLUG)], flags: MessageFlags.Ephemeral });
@@ -157,7 +176,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
 client.on(Events.MessageCreate, (message) => {
   if (message.author.bot) return;
-  if (message.guildId) return void vouches.handleChannelMessage(message).catch((err) => console.error('Vouch channel check failed:', err));
+  if (message.guildId) {
+    if (message.channelId === config.vouchChannelId) return void vouches.handleChannelMessage(message).catch((err) => console.error('Vouch channel check failed:', err));
+    return void ctx.ai.handleMessage(message).catch((err) => console.error('AI chat failed:', err));
+  }
   orders.handleDm(message).catch((err) => console.error('DM handling failed:', err));
 });
 

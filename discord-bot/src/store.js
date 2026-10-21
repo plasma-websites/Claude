@@ -18,7 +18,7 @@ function randomId(taken) {
 export class Store {
   constructor(file) {
     this.file = file;
-    this.data = { orders: {}, support: {}, vouches: [], payments: {}, staff: {}, meta: {} };
+    this.data = { orders: {}, support: {}, vouches: [], payments: {}, staff: {}, questions: {}, meta: {} };
     if (fs.existsSync(file)) Object.assign(this.data, JSON.parse(fs.readFileSync(file, 'utf8')));
   }
 
@@ -55,15 +55,17 @@ export class Store {
     return Object.values(this.data.orders).filter((o) => o.status === 'completed' && o.closeAt && Date.parse(o.closeAt) <= at);
   }
 
-  createOrder({ service, promo, vc, details, customerId }) {
+  createOrder({ service, promo, fee = null, vc, details, customerId, customerName = null }) {
     const id = randomId(this.data.orders);
     const order = {
       id,
       service,
       promo,
+      fee,
       vc,
       details,
       customerId,
+      customerName,
       screenshot: null,
       status: 'pending',
       ordererId: null,
@@ -130,6 +132,38 @@ export class Store {
       return { error: `Order #${id} is ${order.status}, so it can't be cancelled here — ask in your ticket.` };
     }
     return this.#transition(id, ['pending'], { status: 'cancelled' });
+  }
+
+  // --- orderer questions to customers ---
+
+  createQuestion({ orderId, askerId, customerId, question }) {
+    const id = randomId(this.data.questions);
+    const q = { id, orderId, askerId, customerId, question, answer: null, createdAt: now(), answeredAt: null };
+    this.data.questions[id] = q;
+    this.save();
+    return q;
+  }
+
+  getQuestion(id) {
+    return this.data.questions[id] ?? null;
+  }
+
+  // The customer's most recent unanswered question, for answers typed in DMs.
+  openQuestionFor(customerId) {
+    return (
+      Object.values(this.data.questions)
+        .filter((q) => q.customerId === customerId && !q.answer)
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0] ?? null
+    );
+  }
+
+  answerQuestion(id, answer) {
+    const q = this.getQuestion(id);
+    if (!q) return { error: 'That question no longer exists.' };
+    if (q.answer) return { error: 'You\'ve already answered that question. 👍' };
+    Object.assign(q, { answer, answeredAt: now() });
+    this.save();
+    return { question: q };
   }
 
   // --- vouches ---
@@ -225,9 +259,9 @@ export class Store {
     return Object.values(this.data.support).find((t) => t.channelId === channelId) ?? null;
   }
 
-  createSupport({ userId, reason }) {
+  createSupport({ userId, userName = null, reason }) {
     const id = randomId(this.data.support);
-    const ticket = { id, userId, reason, channelId: null, status: 'open', createdAt: now() };
+    const ticket = { id, userId, userName, reason, channelId: null, status: 'open', createdAt: now() };
     this.data.support[id] = ticket;
     this.save();
     return ticket;
