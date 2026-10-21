@@ -138,7 +138,8 @@ export class Store {
 
   createQuestion({ orderId, askerId, customerId, question }) {
     const id = randomId(this.data.questions);
-    const q = { id, orderId, askerId, customerId, question, answer: null, createdAt: now(), answeredAt: null };
+    const seq = (this.data.questionSeq = (this.data.questionSeq ?? 0) + 1); // orders questions asked in the same millisecond
+    const q = { id, seq, orderId, askerId, customerId, question, answer: null, createdAt: now(), answeredAt: null };
     this.data.questions[id] = q;
     this.save();
     return q;
@@ -153,7 +154,7 @@ export class Store {
     return (
       Object.values(this.data.questions)
         .filter((q) => q.customerId === customerId && !q.answer)
-        .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0] ?? null
+        .sort((a, b) => (b.seq ?? 0) - (a.seq ?? 0) || b.createdAt.localeCompare(a.createdAt))[0] ?? null
     );
   }
 
