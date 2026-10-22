@@ -13,23 +13,32 @@ support tickets, a verify panel and moderation commands.
    - Uber Trains: **5 off**, **10 off**
 3. They answer **VC?** Yes / No.
 4. A form pops up for the address: **delivery address** for Uber Eats / Deliveroo / Just Eat, **pickup + drop-off**
-   for Uber Rides, from/to stations and date for Uber Trains, plus optional notes.
+   for Uber Rides, from/to stations and date for Uber Trains, plus optional notes and an optional
+   **discount / referral code** (see Referrals). A valid code lowers the service fee shown everywhere.
 5. The bot DMs them asking for their **order screenshot** (15 minutes to send it) and gives them a random
    6-digit **order number**, e.g. `#483920`.
-6. The order appears in the **staff orders channel** with the screenshot, pinging the orderers online for that
-   service, with **Accept order** and **❓ Ask question** buttons. Ask question DMs the customer; they answer with
+6. The order appears in the **staff orders channel** with the screenshot, pinging the orderer role **and** the
+   orderers online for that service, with **Accept order** and **❓ Ask question** buttons. Ask question DMs the customer; they answer with
    the button or by typing in DMs, and the answer is posted under the order, pinging whoever asked.
-7. **Accept order** (orderer role only, one person per order) creates a private ticket in the tickets category,
+7. **Accept order** (orderer or trial orderer role, one person per order) first shows a quick private check
+   ("press the 🍕"), so a script can't grab orders. Then it creates a private ticket in the tickets category,
    named with a status emoji, the order number and the customer's username, e.g. `🔵-order-483920-plasma`. Its panel shows all the order info
    and the screenshot.
 8. In the ticket, **Complete order** renames it `🟢-order-483920` and it is **deleted automatically 2 hours later**
-   (`AUTO_DELETE_HOURS`), after a transcript is saved. **Close ticket** / **Close now** locks it immediately.
+   (`AUTO_DELETE_HOURS`), after a transcript is saved. **📌 Keep ticket open** stops the auto-delete.
+   **Close ticket** / **Close now** locks it immediately. **❌ Cancel order** (staff) asks for an optional reason,
+   DMs the customer, gives back any discount code, and deletes the ticket 10 seconds later.
 9. Closing **locks** the ticket (`🔒-order-483920`): the customer loses access, staff keep it.
    **Delete ticket** (staff only) removes the channel; it's available on every ticket at any stage.
+10. Instead of scrolling up to the buttons, staff can type `/complete`, `/close`, `/delete` or `/rename name:` in any
+    order or support ticket.
 
 The customer gets DMs along the way. Auto-delete times are saved, so tickets are still deleted on schedule if the bot
 restarts. A member can have up to `MAX_OPEN_ORDERS` (default 2) orders waiting or in progress at once; completed
 orders don't count.
+
+Ticket status emojis: 🔵 in progress · 🟢 completed · 🔒 closed (support tickets: 👨‍💻 in progress · ✅ completed).
+Discord limits channel renames to 2 per 10 minutes, so a rename can show up a few minutes late if a ticket changes status quickly.
 
 ## Transcripts
 Every message in order and support tickets is saved as it's sent (in `data/transcripts`), so a transcript exists
@@ -44,34 +53,75 @@ Turn on **Message Content Intent** (Developer Portal → Bot) or transcripts onl
 members type. Links to attachments in transcripts are Discord links and can stop working after a while; order
 screenshots are also kept in `data/screenshots`. Tickets from before this feature only have their order details.
 
+## Trial orderers
+Set `TRIAL_ORDERER_ROLE_ID` to a role for trial orderers. They can do everything orderers can (go online, accept,
+complete, request payments). When a trial orderer accepts an order, the ticket pings the orderer role so a full
+orderer joins to supervise. `/trialpanel` posts a panel listing every trial orderer's **successful (completed)
+orders** with order numbers and dates, plus orders in progress, updated live.
+
+## Referrals
+`/referralpanel` posts the **🎉 Foodhub Referrals — Win-Win!** panel:
+- **🔗 Get my invite link** creates a personal, never-expiring invite link for that member.
+- When someone joins through it, the bot records who invited them and DMs both.
+- **🎟️ I was invited** gives the new member a **50p off** code for their first order (once).
+- **🏆 Claim my reward**: once 3 friends have joined and 2 of them have **completed** an order, the member gets a
+  **free-fee** code. No limit — every 2 more friends who order earn another. Otherwise it shows their progress.
+- **📋 My codes** lists their codes. Every code message has a **📋 Copy code** button.
+
+Codes are personal and single-use. They're typed into the order form; the fee drops straight away and the code is
+marked used on that order. If the order is cancelled (by the customer, staff, or a deleted ticket), the code
+becomes valid again and the owner is DMed it.
+
+Needs **Server Members Intent** on (Developer Portal → Bot) and the bot's **Manage Server** permission (to read
+invite counts) and **Create Invite** in the panel's channel.
+
+## Bot suggestions
+`/suggestionpanel [channel:]` turns a channel into the suggestions list: a numbered, formatted list with a panel
+under it that's always the last message. **➕ Add suggestion** opens a form and the list updates; **🧹 Clear list**
+(admins) empties it after a confirm. Turn off Send Messages there so only the bot posts.
+
+## Applications
+`/applypanel` posts **Apply to be an orderer** and **Apply to be a partner**. The bot asks the questions one by one in
+DMs:
+- **Orderer:** VC proof (images in one message), vouches yes/no, order proof (images), other servers yes/no, active times.
+- **Partner:** server invite link, member count, members gained organically yes/no, what the server is about, what
+  they want from the partnership.
+
+The finished application is posted in `APPLICATIONS_CHANNEL_ID` (default: the staff orders channel) with the images
+underneath and **Accept** / **Deny** buttons for admins. Accepting an orderer gives them the trial orderer role. The
+applicant is DMed either way.
+
 ## Giveaways
 `/giveaway [channel:]` (Manage Server) opens a form: **title**, **duration** (`30m`, `2h`, `1d`, `1w`, max 28d),
 **number of winners** (default 1) and **info**. The bot posts it with a **🎉 Enter** button showing the entry count;
 pressing it again leaves. When time's up it picks random winners, edits the post and pings them. Admins can press
 **🔁 Reroll** on an ended giveaway to draw again. Giveaways are saved, so they still end if the bot restarts.
 
-Ticket status emojis: 🔵 in progress · 🟢 completed · 🔒 closed. Discord limits channel renames to 2 per
-10 minutes, so a rename can show up a few minutes late if a ticket changes status quickly.
-
 ## Staff panel, fees & payments
 Post the **🧑‍🍳 Orderer control panel** in a staff channel with `/staffpanel`. Orderers use it to:
-- **Go online** for the services they're taking (multi-select) or **Go offline**. The order panel shows who's online
-  for each service, live, and new orders ping the online orderers for that service (or the orderer role if nobody is).
-- **Payment details:** save their PayPal, Revolut and Starling links and LTC address.
-- **My status:** see what's saved.
+- **Go online** for the services they're taking (multi-select), then pick **how long** (30 min – 8 hours). They're
+  set offline automatically (and DMed) when the time's up, so nobody stays online by accident. **Go offline** ends it early.
+  The order panel shows who's online for each service, live.
+- **🗓️ My schedule:** the times they're usually online, e.g. `Mon-Fri 6pm-10pm`, `Sat 12:00-23:30`,
+  `weekends 10-14`, `daily 22:00-02:00` (`TIMEZONE`, default UK time). At the start of each slot the bot DMs them
+  "you're usually online now — go online?" with **Yes** / **Not today**. Yes puts them online for the services they
+  last picked until the slot ends.
+- **Payment details:** save their PayPal, Revolut, Starling and Wise links and LTC address.
+- **My status:** see what's saved, when they go offline, and their schedule.
 
 Service fees (in `src/services.js`, or per promo in `promos.json`): Uber Rides **£1.50**, Uber Eats **£2.50**,
 Deliveroo **£2.50**, Just Eat **£2.00**, Uber Trains **£1.00** (5 off) / **£2.50** (10 off).
 They show on the order panel, the promo step, the order post and the ticket.
 
-In an order ticket, orderers run `/paypal amount:`, `/rev amount:`, `/starling amount:` or `/crypto amount:`. The bot
+In an order ticket, orderers run `/paypal amount:`, `/rev amount:`, `/starling amount:`, `/wise amount:` or `/crypto amount:`. The bot
 posts a **💳 PAYMENT DUE** panel pinging the customer with the amount in £ and the orderer's saved link/address. The
 customer presses **✅ I've paid**, the orderer is pinged and presses **💰 Confirm received** or **❌ Not received**.
 
 **🔁 Forfeit** (in the ticket, accepting orderer or admin): the order goes back to the queue with its ticket kept, the
 old staff post is replaced by a fresh one that re-pings, and whoever accepts next joins the same ticket.
 
-Every message the bot sends is an embed panel (pings are sent alongside the embed).
+Every message the bot sends is an embed panel (pings are sent alongside the embed), all in one colour:
+`BRAND_COLOR` in `.env` (a hex code like `#ff7a00`, default Discord blurple).
 
 ## Food Hub AI
 Set `ANTHROPIC_API_KEY` (from console.anthropic.com) and restart. There are two personalities:
@@ -112,8 +162,8 @@ what a good vouch looks like, and the bot keeps it as the last message in the ch
 
 ## Support tickets
 Post the panel with `/supportpanel`. Members click **Open support ticket**, type what they need, and get a private
-`🟢-support-123456` channel with the support role. The member or staff can **Close** it (locks it, `🔒`), and staff
-can **Delete** it. One open support ticket per member.
+`👨‍💻-support-123456` channel with the support role. The member or staff can **Close** it (or `/close`), which saves
+a transcript and deletes the channel straight away. One open support ticket per member.
 
 ## Verification (RestoreCord / VaultCord)
 RestoreCord and VaultCord are separate services: they do the actual verifying, hand out your Verified role, and
@@ -140,7 +190,13 @@ verify panel with a button to your verify link.
 | `/staffpanel [channel:]` | Manage Server | Post the orderer control panel |
 | `/transcriptpanel [channel:]` | Manage Server | Post the staff transcript search panel |
 | `/giveaway [channel:]` | Manage Server | Start a giveaway (opens a form) |
-| `/paypal` `/rev` `/starling` `/crypto` `amount:` | Orderer role | Post a payment-due panel with your saved details |
+| `/trialpanel [channel:]` | Manage Server | Post the trial orderer panel |
+| `/referralpanel [channel:]` | Manage Server | Post the referrals panel |
+| `/suggestionpanel [channel:]` | Manage Server | Post / move the bot suggestions list |
+| `/applypanel [channel:]` | Manage Server | Post the orderer / partner applications panel |
+| `/complete` `/close` `/delete` | Staff (checked by the bot) | Same as the ticket buttons, in the current ticket |
+| `/rename name:` | Staff | Rename the current ticket channel |
+| `/paypal` `/rev` `/starling` `/wise` `/crypto` `amount:` | Orderer role | Post a payment-due panel with your saved details |
 | `/whyfoodhub [channel:]` | Manage Server | Post the Why Food Hub panel (2 buttons, text in `src/whyfoodhub.js`) |
 | `/announce [channel:] [ping:]` | Manage Server | Post an announcement panel |
 | `/myorders` | everyone | Your recent orders and their status |
@@ -156,10 +212,11 @@ mute/ban someone with an equal or higher role.
 
 ## Setup
 1. Create an application at https://discord.com/developers/applications, then **Bot → Reset Token** and copy it.
-   No privileged intents are needed.
+   On the same page turn on **Message Content Intent** (transcripts, AI) and **Server Members Intent** (referrals).
 2. Invite it: **OAuth2 → URL Generator**, scopes `bot` + `applications.commands`, permissions:
-   *Manage Channels, Manage Roles, View Channels, Send Messages, Embed Links, Attach Files, Read Message History,
-   Manage Messages, Timeout Members, Ban Members, Mention Everyone*. In **Server Settings → Roles**, drag the bot's
+   *Manage Server, Manage Channels, Manage Roles, Create Invite, View Channels, Send Messages, Embed Links, Attach
+   Files, Read Message History, Manage Messages, Timeout Members, Ban Members, Mention Everyone*. Manage Server lets it
+   read invite counts for referrals; Manage Roles lets it give the trial role (its role must be above that role). In **Server Settings → Roles**, drag the bot's
    role **above** the roles of people it should be able to mute or ban.
 3. In your server create:
    - a `submit-orders` channel (everyone can see it, but turn off Send Messages so only the panel is there)

@@ -1,5 +1,5 @@
 import { MessageFlags } from 'discord.js';
-import { COLORS, createTicketChannel, deleteChannel, editMessage, ephemeral, hasRole, isAdmin, lockTicket, panel, renameChannel, say } from './util.js';
+import { COLORS, createTicketChannel, deleteChannel, ephemeral, hasRole, isAdmin, lockTicket, panel, renameChannel, say } from './util.js';
 import { supportButtons, supportEmbed, supportModal, supportTicketName } from './views.js';
 
 export function createSupportHandlers({ client, config, store, ai, transcripts }) {
@@ -47,31 +47,25 @@ export function createSupportHandlers({ client, config, store, ai, transcripts }
     if (ai?.enabled) ai.answerOpening(channel, store.supportByChannel(channel.id));
   }
 
-  // Locks the ticket: the member loses access, staff keep it until they delete it.
+  // Closing a support ticket deletes it straight away, after saving its transcript.
   async function close(interaction) {
     const ticket = store.supportByChannel(interaction.channelId);
-    if (!ticket || ticket.status !== 'open') return interaction.reply(ephemeral('🔒 This ticket is already closed.'));
+    if (!ticket) return interaction.reply(ephemeral('This isn\'t a support ticket.'));
     if (ticket.userId !== interaction.user.id && !isStaff(interaction)) return interaction.reply(ephemeral('You can\'t close this ticket.'));
-    const closed = store.updateSupport(ticket.id, { status: 'closed', closedBy: interaction.user.id });
-    await interaction.deferUpdate();
-    await lockTicket(client, closed.channelId, closed.userId);
-    renameChannel(client, closed.channelId, supportTicketName(closed));
-    await editMessage(client, closed.channelId, closed.messageId, { embeds: [supportEmbed(closed)], components: supportButtons(closed) });
-    await interaction.channel.send(
-      say(`🔒 Ticket closed by <@${interaction.user.id}>.\n🗑️ Staff can delete this ticket when they're done.`, { components: supportButtons(closed) }, {
-        title: '🔒 Ticket closed',
-        color: COLORS.danger,
-      }),
-    );
+    store.updateSupport(ticket.id, { status: 'closed', closedBy: interaction.user.id, closedAt: new Date().toISOString() });
+    await interaction.reply(say(`✅ Ticket closed by <@${interaction.user.id}>. Deleting it now…\n📜 A transcript has been saved.`, {}, { title: '✅ Support ticket completed' }));
+    await transcripts.saveChannel(interaction.channelId);
+    if (!(await deleteChannel(client, interaction.channelId, `Closed by ${interaction.user.tag}`))) {
+      await lockTicket(client, interaction.channelId, ticket.userId);
+      renameChannel(client, interaction.channelId, supportTicketName(store.supportByChannel(interaction.channelId)));
+      await interaction.followUp(ephemeral('I couldn\'t delete this channel (check I have **Manage Channels**), so I locked it instead.'));
+    }
   }
 
+  // Staff only. Same as close, kept for the Delete button and /delete.
   async function remove(interaction) {
     if (!isStaff(interaction)) return interaction.reply(ephemeral('Only staff can delete tickets.'));
-    const ticket = store.supportByChannel(interaction.channelId);
-    if (ticket?.status === 'open') store.updateSupport(ticket.id, { status: 'closed', closedBy: interaction.user.id });
-    await interaction.reply(say(`🗑️ Deleting this ticket in 5 seconds… (by <@${interaction.user.id}>)\n📜 A transcript is being saved.`, {}, { color: COLORS.danger }));
-    await Promise.all([transcripts.saveChannel(interaction.channelId), new Promise((resolve) => setTimeout(resolve, 5000))]);
-    await deleteChannel(client, interaction.channelId, `Deleted by ${interaction.user.tag}`);
+    return close(interaction);
   }
 
   function handleComponent(interaction) {
@@ -83,5 +77,5 @@ export function createSupportHandlers({ client, config, store, ai, transcripts }
     }
   }
 
-  return { handleComponent };
+  return { handleComponent, close, remove };
 }

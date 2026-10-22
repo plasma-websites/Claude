@@ -1,7 +1,8 @@
 import { PAYMENT_METHODS, SERVICES, money } from './services.js';
 import { MessageFlags } from 'discord.js';
-import { COLORS, ephemeral, hasRole, isAdmin, panel, say } from './util.js';
-import { ordersPanel, paymentButtons, paymentDetailsModal, paymentEmbed, staffStatusEmbed } from './views.js';
+import { formatSlot, localNow, parseSchedule, slotsStartingNow } from './schedule.js';
+import { COLORS, dm, ephemeral, isAdmin, isOrderer as isOrdererMember, panel, say } from './util.js';
+import { onlineDurationPicker, ordersPanel, paymentButtons, paymentDetailsModal, paymentEmbed, scheduleModal, schedulePrompt, staffStatusEmbed } from './views.js';
 
 const methodByCommand = Object.fromEntries(Object.entries(PAYMENT_METHODS).map(([key, m]) => [m.command, key]));
 export const PAYMENT_COMMANDS = Object.keys(methodByCommand);
@@ -9,7 +10,9 @@ export const PAYMENT_COMMANDS = Object.keys(methodByCommand);
 // Staff panel (who's online + payment details), payment requests, and keeping
 // the "who's online" list on every order panel up to date.
 export function createStaffHandlers({ client, config, store, promos }) {
-  const isOrderer = (interaction) => hasRole(interaction.member, config.ordererRoleId) || isAdmin(interaction);
+  const isOrderer = (interaction) => isOrdererMember(interaction.member, config) || isAdmin(interaction);
+  const until = (minutes) => new Date(Date.now() + minutes * 60 * 1000);
+  const ts = (date) => `<t:${Math.floor(date.getTime() / 1000)}:t>`;
 
   // --- order panels ---
 
@@ -36,10 +39,20 @@ export function createStaffHandlers({ client, config, store, promos }) {
 
   // --- staff panel ---
 
-  async function goOnline(interaction) {
-    store.setOnline(interaction.user.id, interaction.values);
-    const list = interaction.values.map((k) => `${SERVICES[k].emoji} **${SERVICES[k].label}**`).join(', ');
-    await interaction.reply(ephemeral(`🟢 You're now **online** for ${list}.\nNew orders for these will ping you. 🔔`, {}, { color: COLORS.success }));
+  const serviceList = (keys) => keys.map((k) => `${SERVICES[k].emoji} **${SERVICES[k].label}**`).join(', ');
+
+  // Step 1: services picked on the panel → ask how long for.
+  function pickServices(interaction) {
+    return interaction.reply({ ...onlineDurationPicker(interaction.values), flags: MessageFlags.Ephemeral });
+  }
+
+  // Step 2: duration picked → online until then, then automatically offline.
+  async function goOnline(interaction, minutes, services) {
+    const end = until(minutes);
+    store.setOnline(interaction.user.id, services, end);
+    await interaction.update(
+      say(`🟢 You're now **online** for ${serviceList(services)} until ${ts(end)} (<t:${Math.floor(end / 1000)}:R>).\nNew orders for these will ping you. 🔔\n⏰ You'll be set offline automatically after that.`, { components: [] }, { color: COLORS.success }),
+    );
     await refreshOrderPanels();
   }
 
@@ -61,19 +74,85 @@ export function createStaffHandlers({ client, config, store, promos }) {
     if (problems.length) return interaction.reply(ephemeral(`❌ Nothing was saved:\n${problems.join('\n')}`, {}, { color: COLORS.danger }));
     store.setPaymentDetails(interaction.user.id, details);
     return interaction.reply({
-      embeds: [panel('✅ Payment details saved!', { color: COLORS.success }), staffStatusEmbed(store.getStaff(interaction.user.id))],
+      embeds: [panel('✅ Payment details saved!', { color: COLORS.success }), staffStatusEmbed(store.getStaff(interaction.user.id), config.timezone)],
       flags: MessageFlags.Ephemeral,
     });
   }
 
+  // --- schedules ---
+
+  async function saveSchedule(interaction) {
+    const text = interaction.fields.getTextInputValue('times').trim();
+    if (!text) {
+      store.setSchedule(interaction.user.id, null);
+      return interaction.reply(ephemeral('🗓️ Schedule cleared. You won\'t get "are you online?" DMs.', {}, { color: COLORS.success }));
+    }
+    const { slots, errors } = parseSchedule(text);
+    if (errors.length || !slots.length) {
+      return interaction.reply(
+        ephemeral(
+          `❌ I couldn't read: ${errors.map((e) => `\`${e}\``).join(', ') || 'anything'}\nUse lines like \`Mon-Fri 6pm-10pm\`, \`Sat 12:00-23:30\`, \`weekends 10-14\`, \`daily 22:00-02:00\`.`,
+          {},
+          { color: COLORS.danger },
+        ),
+      );
+    }
+    store.setSchedule(interaction.user.id, { text, slots });
+    return interaction.reply(
+      ephemeral(`🗓️ **Schedule saved!** (${config.timezone} time)\n${slots.map((sl) => `• ${formatSlot(sl)}`).join('\n')}\n\nAt the start of each slot I'll DM you to ask if you want to go online.`, {}, {
+        color: COLORS.success,
+      }),
+    );
+  }
+
+  // Buttons on the scheduled DM. They're in DMs, so there's no member to check roles on.
+  async function scheduleAnswer(interaction, answer, endMs) {
+    if (answer === 'no') return interaction.update(say('👍 No worries — you\'ll stay offline.', { components: [] }));
+    const end = new Date(Number(endMs));
+    if (end <= new Date()) return interaction.update(say('⏰ That slot has already ended.', { components: [] }));
+    const staff = store.getStaff(interaction.user.id);
+    const services = staff.usualServices?.length ? staff.usualServices : Object.keys(SERVICES);
+    store.setOnline(interaction.user.id, services, end);
+    await interaction.update(say(`🟢 You're **online** for ${serviceList(services)} until ${ts(end)}.\nChange it any time on the staff panel.`, { components: [] }, { color: COLORS.success }));
+    await refreshOrderPanels();
+  }
+
+  // Runs every 30 seconds: sets staff offline when their time is up, and sends scheduled DMs.
+  async function tick() {
+    const expired = store.expiredOnline();
+    for (const userId of expired) {
+      store.setOnline(userId, []);
+      dm(client, userId, say('⏰ Your online time ran out, so you\'ve been set **offline**. Go online again from the staff panel if you\'re still around!'));
+    }
+    if (expired.length) await refreshOrderPanels();
+
+    const now = localNow(config.timezone);
+    for (const [userId, staff] of store.allStaff()) {
+      if (!staff.schedule?.slots?.length || staff.online?.length) continue;
+      for (const { index, length } of slotsStartingNow(staff.schedule.slots, now)) {
+        const key = `${now.date}-${now.minutes}-${index}`;
+        if (staff.lastPrompt === key) continue;
+        store.markPrompted(userId, key);
+        const end = until(length);
+        dm(client, userId, schedulePrompt(end));
+      }
+    }
+  }
+
   async function handleComponent(interaction) {
+    const [, action, a, b] = interaction.customId.split(':');
+    if (action === 'sched') return scheduleAnswer(interaction, a, b);
     if (!isOrderer(interaction)) return interaction.reply(ephemeral(`Only <@&${config.ordererRoleId}> can use the staff panel.`, {}, { color: COLORS.danger }));
+    if (action === 'dur') return goOnline(interaction, Number(a), b.split(',').filter((k) => SERVICES[k]));
     switch (interaction.customId) {
-      case 'staff:online': return goOnline(interaction);
+      case 'staff:online': return pickServices(interaction);
+      case 'staff:schedule': return interaction.showModal(scheduleModal(store.getStaff(interaction.user.id).schedule?.text));
+      case 'staff:schedulesave': return saveSchedule(interaction);
       case 'staff:offline': return goOffline(interaction);
       case 'staff:payments': return interaction.showModal(paymentDetailsModal(store.getStaff(interaction.user.id).payments));
       case 'staff:paymentsave': return savePaymentDetails(interaction);
-      case 'staff:me': return interaction.reply({ embeds: [staffStatusEmbed(store.getStaff(interaction.user.id))], flags: MessageFlags.Ephemeral });
+      case 'staff:me':
+        return interaction.reply({ embeds: [staffStatusEmbed(store.getStaff(interaction.user.id), config.timezone)], flags: MessageFlags.Ephemeral });
     }
   }
 
@@ -154,5 +233,5 @@ export function createStaffHandlers({ client, config, store, promos }) {
     }
   }
 
-  return { handleComponent, handlePaymentButton, requestPayment, refreshOrderPanels, recordOrderPanel };
+  return { handleComponent, handlePaymentButton, requestPayment, refreshOrderPanels, recordOrderPanel, tick };
 }

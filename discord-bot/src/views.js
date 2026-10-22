@@ -9,9 +9,9 @@ import {
   TextInputStyle,
 } from 'discord.js';
 import { PAYMENT_METHODS, SERVICES, STATUS, SUPPORT_STATUS, feeSummary, money, orderFee } from './services.js';
+import { formatSlot } from './schedule.js';
+import { THEME } from './util.js';
 
-const BRAND = 0x5865f2;
-const COLORS_SUCCESS = 0x57f287;
 const DIVIDER = '━━━━━━━━━━━━━━━━━━━━━━━━';
 
 const row = (...components) => new ActionRowBuilder().addComponents(...components);
@@ -54,7 +54,7 @@ export function ordersPanel(promos, online = {}) {
     .join('\n\n');
   const embed = new EmbedBuilder()
     .setTitle('🍽️  PLACE YOUR ORDER  🍽️')
-    .setColor(BRAND)
+    .setColor(THEME)
     .setDescription(
       [
         '> Food or a ride, sorted. Pick a company below and our team will take it from there. 🚀',
@@ -97,7 +97,7 @@ export function promoPicker(serviceKey, promos, onlineIds = []) {
     .setPlaceholder('🏷️ Select your promo…')
     .addOptions(promos.map((p, i) => ({ label: p.name, value: String(i), emoji: '🏷️', description: `Service fee ${money(p.fee)}` })));
   const embed = new EmbedBuilder()
-    .setColor(service.color)
+    .setColor(THEME)
     .setTitle(`${service.emoji} ${service.label} selected!`)
     .setDescription(
       [
@@ -115,7 +115,7 @@ export function promoPicker(serviceKey, promos, onlineIds = []) {
 export function vcPicker(serviceKey, promoValue) {
   const base = `order:vc:${serviceKey}:${promoValue}`;
   return {
-    embeds: [new EmbedBuilder().setColor(BRAND).setDescription('**Step 3/5** — 🎙️ **VC?**')],
+    embeds: [new EmbedBuilder().setColor(THEME).setDescription('**Step 3/5** — 🎙️ **VC?**')],
     components: [row(button(`${base}:yes`, 'Yes', ButtonStyle.Success, '✅'), button(`${base}:no`, 'No', ButtonStyle.Danger, '✖️'))],
   };
 }
@@ -134,6 +134,17 @@ export function detailsModal(serviceKey, promoValue, vc) {
     if (f.placeholder) input.setPlaceholder(f.placeholder);
     modal.addComponents(row(input));
   }
+  modal.addComponents(
+    row(
+      new TextInputBuilder()
+        .setCustomId('code')
+        .setLabel('Discount / referral code (optional)')
+        .setStyle(TextInputStyle.Short)
+        .setRequired(false)
+        .setMaxLength(20)
+        .setPlaceholder('e.g. FH-ABC123'),
+    ),
+  );
   return modal;
 }
 
@@ -142,14 +153,18 @@ export function orderEmbed(order) {
   const status = STATUS[order.status];
   const embed = new EmbedBuilder()
     .setTitle(`${service.emoji} ${service.label} • Order #${order.id}`)
-    .setColor(service.color)
+    .setColor(THEME)
     .setDescription(`${status.emoji} **${status.label}**`)
     .addFields(
       { name: '👤 Customer', value: `<@${order.customerId}>`, inline: true },
       { name: '🏢 Company', value: service.label, inline: true },
       { name: '🏷️ Promo', value: order.promo ?? 'None', inline: true },
       { name: '🎙️ VC', value: order.vc ? '✅ Yes' : '✖️ No', inline: true },
-      { name: '💷 Service fee', value: money(orderFee(order)), inline: true },
+      {
+        name: '💷 Service fee',
+        value: order.code ? `~~${money(order.originalFee)}~~ **${money(orderFee(order))}**\n🎟️ \`${order.code}\`` : money(orderFee(order)),
+        inline: true,
+      },
       { name: '🕒 Placed', value: timestamp(order.createdAt), inline: true },
     )
     .setFooter({ text: `Order #${order.id}${order.screenshot ? ' • 📸 screenshot attached' : ''}` })
@@ -184,27 +199,61 @@ export function staffButtons(order, guildId) {
 
 // Buttons on the panel inside the order ticket.
 export function ticketButtons(order) {
-  const del = button(`order:delete:${order.id}`, 'Delete ticket', ButtonStyle.Secondary, '🗑️');
+  const id = order.id;
+  const del = button(`order:delete:${id}`, 'Delete ticket', ButtonStyle.Secondary, '🗑️');
+  const cancel = button(`order:cancel:${id}`, 'Cancel order', ButtonStyle.Danger, '❌');
   if (order.status === 'accepted') {
     return [
       row(
-        button(`order:complete:${order.id}`, 'Complete order', ButtonStyle.Success, '✅'),
-        button(`order:forfeit:${order.id}`, 'Forfeit', ButtonStyle.Secondary, '🔁'),
-        button(`order:close:${order.id}`, 'Close ticket', ButtonStyle.Danger, '🔒'),
-        del,
+        button(`order:complete:${id}`, 'Complete order', ButtonStyle.Success, '✅'),
+        button(`order:forfeit:${id}`, 'Forfeit', ButtonStyle.Secondary, '🔁'),
+        cancel,
       ),
+      row(button(`order:close:${id}`, 'Close ticket', ButtonStyle.Secondary, '🔒'), del),
     ];
   }
-  if (order.status === 'pending') return [row(del)]; // forfeited, waiting for a new orderer
-  if (order.status === 'completed') return [row(button(`order:close:${order.id}`, 'Close now', ButtonStyle.Danger, '🔒'), del)];
+  if (order.status === 'pending') return [row(cancel, del)]; // forfeited, waiting for a new orderer
+  if (order.status === 'completed') {
+    const keep = order.closeAt ? [button(`order:keepopen:${id}`, 'Keep ticket open', ButtonStyle.Primary, '📌')] : [];
+    return [row(...keep, button(`order:close:${id}`, 'Close now', ButtonStyle.Secondary, '🔒'), del)];
+  }
   if (order.status === 'closed') return [row(del)];
   return [];
+}
+
+export function cancelOrderModal(orderId) {
+  return new ModalBuilder()
+    .setCustomId(`order:cancelsubmit:${orderId}`)
+    .setTitle(`❌ Cancel order #${orderId}`)
+    .addComponents(
+      row(
+        new TextInputBuilder()
+          .setCustomId('reason')
+          .setLabel('Reason (sent to the customer, optional)')
+          .setStyle(TextInputStyle.Paragraph)
+          .setRequired(false)
+          .setMaxLength(500),
+      ),
+    );
+}
+
+// "Press the 🍕" check before accepting an order, so it can't be done by a script.
+export function captchaView({ orderId, token, choices, answer, note = '' }) {
+  return {
+    embeds: [
+      new EmbedBuilder()
+        .setColor(THEME)
+        .setTitle('🧩 Quick check')
+        .setDescription(`${note}To accept order **#${orderId}**, press the **${answer}** below.`),
+    ],
+    components: [row(...choices.map((emoji, i) => new ButtonBuilder().setCustomId(`order:captcha:${token}:${i}`).setStyle(ButtonStyle.Secondary).setEmoji(emoji)))],
+  };
 }
 
 export function ticketWelcome(order) {
   const service = SERVICES[order.service];
   return new EmbedBuilder()
-    .setColor(service.color)
+    .setColor(THEME)
     .setTitle('👋 Welcome to your ticket!')
     .setDescription(
       [
@@ -220,7 +269,7 @@ export function ticketWelcome(order) {
 export function supportPanel() {
   const embed = new EmbedBuilder()
     .setTitle('🆘  SUPPORT  🆘')
-    .setColor(0xfee75c)
+    .setColor(THEME)
     .setDescription(
       [
         '> Got a problem or a question? Our team is here to help! 💛',
@@ -255,17 +304,17 @@ export function supportModal() {
     );
 }
 
+// Closing deletes the ticket (after saving a transcript), so one button is enough.
 export function supportButtons(ticket) {
-  const del = button('support:delete', 'Delete ticket', ButtonStyle.Secondary, '🗑️');
-  if (ticket.status === 'open') return [row(button('support:close', 'Close ticket', ButtonStyle.Danger, '🔒'), del)];
-  return [row(del)];
+  if (ticket.status === 'open') return [row(button('support:close', 'Close ticket', ButtonStyle.Danger, '✅'))];
+  return [];
 }
 
 export function supportEmbed(ticket) {
   const status = SUPPORT_STATUS[ticket.status];
   return new EmbedBuilder()
     .setTitle(`🎫 Support ticket #${ticket.id}`)
-    .setColor(0xfee75c)
+    .setColor(THEME)
     .setDescription(`${status.emoji} **${status.label}**\n\n👋 Thanks for reaching out! Our team will be with you shortly.`)
     .addFields(
       { name: '👤 Opened by', value: `<@${ticket.userId}>`, inline: true },
@@ -280,7 +329,7 @@ export function supportEmbed(ticket) {
 export function verifyPanel(url) {
   const embed = new EmbedBuilder()
     .setTitle('✅  VERIFY TO GET ACCESS  ✅')
-    .setColor(0x57f287)
+    .setColor(THEME)
     .setDescription(
       [
         '> Welcome! 👋 Verify below to unlock the rest of the server.',
@@ -301,7 +350,7 @@ export function completedEmbed(order) {
   const service = SERVICES[order.service];
   return new EmbedBuilder()
     .setTitle('✅  ORDER COMPLETED  ✅')
-    .setColor(0x57f287)
+    .setColor(THEME)
     .setDescription(
       [
         '🎉 **Another order completed successfully!**',
@@ -327,7 +376,7 @@ const stars = (n) => '⭐'.repeat(n) + '☆'.repeat(5 - n);
 export function vouchSticky() {
   const embed = new EmbedBuilder()
     .setTitle('⭐  LEAVE A VOUCH  ⭐')
-    .setColor(0xfee75c)
+    .setColor(THEME)
     .setDescription(
       [
         '> Had a great order? Let everyone know! 💛 Every vouch here is from a **real, completed order**.',
@@ -379,7 +428,7 @@ export function vouchEmbed(vouch, order) {
   const service = SERVICES[order.service];
   return new EmbedBuilder()
     .setTitle(`${stars(vouch.stars)}  Vouch #${vouch.number}`)
-    .setColor(0xfee75c)
+    .setColor(THEME)
     .setDescription(`> ${vouch.message.replace(/\n/g, '\n> ')}`)
     .addFields(
       { name: '👤 Customer', value: `<@${vouch.userId}>`, inline: true },
@@ -413,7 +462,7 @@ export function announceModal(channelId, ping) {
 export function announcementEmbed({ title, message, image, author }) {
   const embed = new EmbedBuilder()
     .setTitle(`📢  ${title}`)
-    .setColor(BRAND)
+    .setColor(THEME)
     .setDescription(message)
     .setFooter({ text: `Posted by ${author}` })
     .setTimestamp();
@@ -424,7 +473,7 @@ export function announcementEmbed({ title, message, image, author }) {
 export function tosPanel(tos) {
   const embed = new EmbedBuilder()
     .setTitle(tos.title)
-    .setColor(0xed4245)
+    .setColor(THEME)
     .setDescription(`> Please read these carefully before placing an order. ⚠️\n${DIVIDER}`)
     .addFields(tos.sections)
     .setFooter({ text: `🙏 ${tos.footer}` })
@@ -437,7 +486,7 @@ export function tosPanel(tos) {
 export function whyPanel() {
   const embed = new EmbedBuilder()
     .setTitle('🍔  WHY FOOD HUB?  🍔')
-    .setColor(0xf1c40f)
+    .setColor(THEME)
     .setDescription(
       [
         '> Thinking about ordering with us? Here\'s what we\'re about. 💛',
@@ -462,12 +511,12 @@ export function whyPanel() {
 export function whyFoodHubEmbed(why) {
   return new EmbedBuilder()
     .setTitle(why.title)
-    .setColor(0xf1c40f)
+    .setColor(THEME)
     .setDescription([`> ${why.intro}`, DIVIDER, why.points.join('\n\n'), DIVIDER, why.tagline, '', why.outro].join('\n'));
 }
 
 export function whyOverFoodplugEmbed(why) {
-  return new EmbedBuilder().setTitle(why.title).setColor(0xf1c40f).setDescription(why.paragraphs.join('\n\n'));
+  return new EmbedBuilder().setTitle(why.title).setColor(THEME).setDescription(why.paragraphs.join('\n\n'));
 }
 
 // --- staff panel (availability & payment details) ---
@@ -475,24 +524,29 @@ export function whyOverFoodplugEmbed(why) {
 export function staffPanel() {
   const embed = new EmbedBuilder()
     .setTitle('🧑‍🍳  ORDERER CONTROL PANEL  🧑‍🍳')
-    .setColor(0x2ecc71)
+    .setColor(THEME)
     .setDescription(
       [
         '> Everything you need as an orderer, in one place. 💪',
         DIVIDER,
         '### 🟢 Going online',
-        'Pick the services you\'re taking orders for from the menu below. Customers see who\'s online on the order panel, and new orders for those services ping you.',
-        '🔴 Hit **Go offline** when you\'re done.',
+        'Pick the services you\'re taking orders for, then **how long** you\'re online for. Customers see who\'s online on the order panel and new orders ping you. ⏰ You\'re set offline automatically when the time\'s up.',
+        '🔴 Hit **Go offline** if you finish early.',
+        DIVIDER,
+        '### 🗓️ Your schedule',
+        'Save the times you\'re usually online with **My schedule**. At those times I\'ll DM you to ask if you want to go online — one tap. ✅',
         DIVIDER,
         '### 💳 Getting paid',
-        'Save your **PayPal**, **Revolut**, **Starling** and **LTC** details with **Payment details**. Then in a ticket use:',
-        '`/paypal amount:` • `/rev amount:` • `/starling amount:` • `/crypto amount:`',
+        `Save your ${Object.values(PAYMENT_METHODS).map((m) => `**${m.label}**`).join(', ')} details with **Payment details**. Then in a ticket use:`,
+        Object.values(PAYMENT_METHODS).map((m) => `\`/${m.command} amount:\``).join(' • '),
         'The customer gets a payment panel with an **I\'ve paid** button, and you confirm when it lands. ✅',
         DIVIDER,
-        '### 🔁 Can\'t finish an order?',
-        'Press **Forfeit** in the ticket. It goes back to the queue and staff are pinged to pick it up.',
+        '### 🎫 In tickets',
+        '`/complete` • `/close` • `/delete` • `/rename name:` — no scrolling up to the buttons.',
+        '🔁 Can\'t finish an order? Press **Forfeit** and it goes back to the queue.',
       ].join('\n'),
-    );
+    )
+    .setFooter({ text: '🧑‍🍳 Food Hub staff' });
   const select = new StringSelectMenuBuilder()
     .setCustomId('staff:online')
     .setPlaceholder('🟢 Select the services you\'re online for…')
@@ -505,8 +559,58 @@ export function staffPanel() {
       row(select),
       row(
         button('staff:offline', 'Go offline', ButtonStyle.Danger, '🔴'),
+        button('staff:schedule', 'My schedule', ButtonStyle.Primary, '🗓️'),
         button('staff:payments', 'Payment details', ButtonStyle.Primary, '💳'),
         button('staff:me', 'My status', ButtonStyle.Secondary, '👀'),
+      ),
+    ],
+  };
+}
+
+const ONLINE_DURATIONS = [
+  [30, '30 min'],
+  [60, '1 hour'],
+  [120, '2 hours'],
+  [240, '4 hours'],
+  [480, '8 hours'],
+];
+
+export function onlineDurationPicker(services) {
+  const keys = services.join(',');
+  return {
+    embeds: [
+      new EmbedBuilder()
+        .setColor(THEME)
+        .setDescription(`⏰ **How long are you online for?**\n${services.map((k) => `${SERVICES[k].emoji} ${SERVICES[k].label}`).join(', ')}\nYou'll be set offline automatically when the time's up.`),
+    ],
+    components: [row(...ONLINE_DURATIONS.map(([minutes, label]) => button(`staff:dur:${minutes}:${keys}`, label, ButtonStyle.Success)))],
+  };
+}
+
+export function scheduleModal(current) {
+  const input = new TextInputBuilder()
+    .setCustomId('times')
+    .setLabel('When are you usually online? (empty = clear)')
+    .setStyle(TextInputStyle.Paragraph)
+    .setRequired(false)
+    .setMaxLength(500)
+    .setPlaceholder('Mon-Fri 6pm-10pm\nSat 12:00-23:30\nSun 14-20');
+  if (current) input.setValue(current);
+  return new ModalBuilder().setCustomId('staff:schedulesave').setTitle('🗓️ My usual online times').addComponents(row(input));
+}
+
+export function schedulePrompt(end) {
+  return {
+    embeds: [
+      new EmbedBuilder()
+        .setColor(THEME)
+        .setTitle('🗓️ You\'re usually online around now')
+        .setDescription(`Want me to mark you as **online**? You'll stay online until <t:${Math.floor(end / 1000)}:t>, the end of your usual slot.`),
+    ],
+    components: [
+      row(
+        button(`staff:sched:yes:${end.getTime()}`, 'Yes, go online', ButtonStyle.Success, '🟢'),
+        button('staff:sched:no', 'Not today', ButtonStyle.Secondary, '🔴'),
       ),
     ],
   };
@@ -528,25 +632,26 @@ export function paymentDetailsModal(current = {}) {
   return modal;
 }
 
-export function staffStatusEmbed(staff) {
+export function staffStatusEmbed(staff, timeZone) {
   const online = staff.online?.length
-    ? staff.online.map((k) => `${SERVICES[k].emoji} ${SERVICES[k].label}`).join(', ')
+    ? `${staff.online.map((k) => `${SERVICES[k].emoji} ${SERVICES[k].label}`).join(', ')}${staff.onlineUntil ? `\n⏰ until ${timestamp(staff.onlineUntil, 't')} (${timestamp(staff.onlineUntil)})` : ''}`
     : '🔴 Offline';
   const details = Object.entries(PAYMENT_METHODS)
     .map(([key, m]) => `${m.emoji} **${m.label}:** ${staff.payments?.[key] ? `\`${staff.payments[key]}\`` : '*not set*'}`)
     .join('\n');
+  const schedule = staff.schedule?.slots?.length ? `${staff.schedule.slots.map((sl) => `• ${formatSlot(sl)}`).join('\n')}\n*(${timeZone} time)*` : '*Not set — use **My schedule***';
   return new EmbedBuilder()
     .setTitle('👀 Your orderer status')
-    .setColor(0x2ecc71)
-    .addFields({ name: '🟢 Online for', value: online }, { name: '💳 Payment details', value: details });
+    .setColor(THEME)
+    .addFields({ name: '🟢 Online for', value: online }, { name: '🗓️ Schedule', value: schedule }, { name: '💳 Payment details', value: details });
 }
 
 // --- payment requests ---
 
 const PAYMENT_STATUS = {
-  due: { label: 'Payment due', emoji: '🟡', color: 0xfee75c },
-  marked_paid: { label: 'Customer says paid — waiting for confirmation', emoji: '🔵', color: 0x5865f2 },
-  confirmed: { label: 'Payment confirmed', emoji: '🟢', color: 0x57f287 },
+  due: { label: 'Payment due', emoji: '🟡' },
+  marked_paid: { label: 'Customer says paid — waiting for confirmation', emoji: '🔵' },
+  confirmed: { label: 'Payment confirmed', emoji: '🟢' },
 };
 
 export function paymentEmbed(payment, destination) {
@@ -567,7 +672,7 @@ export function paymentEmbed(payment, destination) {
   if (payment.status === 'due') lines.push('✅ Once you\'ve paid, click **I\'ve paid** below.');
   return new EmbedBuilder()
     .setTitle(`${m.emoji}  PAYMENT DUE — ${money(payment.amount)}  ${m.emoji}`)
-    .setColor(status.color)
+    .setColor(THEME)
     .setDescription(lines.join('\n'))
     .addFields(
       { name: '🧑‍🍳 Pay to', value: `<@${payment.ordererId}>`, inline: true },
@@ -642,7 +747,7 @@ export function questionDm(order, q) {
   const service = SERVICES[order.service];
   const embed = new EmbedBuilder()
     .setTitle(`❓ Question about your ${service.label} order #${order.id}`)
-    .setColor(service.color)
+    .setColor(THEME)
     .setDescription(
       [
         `🧑‍🍳 <@${q.askerId}> asked:`,
@@ -668,7 +773,7 @@ export function answerEmbed(order, q) {
   const service = SERVICES[order.service];
   return new EmbedBuilder()
     .setTitle(`💬 Customer answered — ${service.label} order #${order.id}`)
-    .setColor(COLORS_SUCCESS)
+    .setColor(THEME)
     .addFields(
       { name: '❓ Question', value: q.question.slice(0, 1024) },
       { name: '✍️ Answer', value: q.answer.slice(0, 1024) },
@@ -680,21 +785,23 @@ export function answerEmbed(order, q) {
 
 // --- transcripts ---
 
-export function transcriptPanel() {
+export function transcriptPanel(messageContent = true) {
   return {
     embeds: [
       new EmbedBuilder()
-        .setTitle('📜 Ticket transcripts')
-        .setColor(BRAND)
+        .setTitle('📜  TICKET TRANSCRIPTS  📜')
+        .setColor(THEME)
         .setDescription(
           [
-            'Every order and support ticket is saved before it\'s deleted.',
-            '',
+            '> Every order and support ticket is saved before it\'s deleted. 🗂️',
+            DIVIDER,
             '🔎 Press **Search by user ID** and paste a member\'s ID to get a transcript of every order they\'ve made (and their support tickets).',
-            '',
-            '*Staff only.*',
-          ].join('\n'),
-        ),
+            messageContent ? null : `${DIVIDER}\n⚠️ **Message Content Intent is off**, so members' messages aren't being saved — only the bot's panels. Turn it on in the Developer Portal → Bot, then restart.`,
+          ]
+            .filter(Boolean)
+            .join('\n'),
+        )
+        .setFooter({ text: '🔒 Staff only' }),
     ],
     components: [row(button('transcript:open', 'Search by user ID', ButtonStyle.Primary, '🔎'))],
   };
@@ -761,7 +868,7 @@ export function giveawayEmbed(g) {
   ].filter((l) => l !== null);
   return new EmbedBuilder()
     .setTitle(`🎉 ${g.title}`)
-    .setColor(ended ? 0x99aab5 : 0xf1c40f)
+    .setColor(THEME)
     .setDescription(lines.join('\n'))
     .setFooter({ text: ended ? `Giveaway #${g.id} • ended` : `Giveaway #${g.id} • ${g.winners} winner${g.winners === 1 ? '' : 's'}` })
     .setTimestamp(new Date(g.endsAt));
@@ -770,4 +877,242 @@ export function giveawayEmbed(g) {
 export function giveawayButtons(g) {
   if (g.status === 'running') return [row(button(`giveaway:enter:${g.id}`, 'Enter', ButtonStyle.Success, '🎉'))];
   return [row(button(`giveaway:enter:${g.id}`, 'Ended', ButtonStyle.Secondary, '🎉').setDisabled(true), button(`giveaway:reroll:${g.id}`, 'Reroll', ButtonStyle.Secondary, '🔁'))];
+}
+
+// --- trial orderers ---
+
+export function trialPanel(stats, roleId) {
+  const entries = Object.entries(stats).sort(([, a], [, b]) => b.completed.length - a.completed.length);
+  const lines = entries.map(([userId, s]) => {
+    const recent = s.completed.slice(0, 8).map((o) => `\`#${o.id}\` ${timestamp(o.completedAt, 'd')}`);
+    return [
+      `🎓 <@${userId}> — ✅ **${s.completed.length}** completed${s.inProgress.length ? ` · 🔵 **${s.inProgress.length}** in progress` : ''}`,
+      recent.length ? `└ ${recent.join(' • ')}${s.completed.length > recent.length ? ' …' : ''}` : '└ *No completed orders yet*',
+    ].join('\n');
+  });
+  let body = '';
+  for (const [i, line] of lines.entries()) {
+    if (body.length + line.length > 3300) {
+      body += `\n\n*…and ${lines.length - i} more*`;
+      break;
+    }
+    body += `${body ? '\n\n' : ''}${line}`;
+  }
+  return {
+    embeds: [
+      new EmbedBuilder()
+        .setTitle('🎓  TRIAL ORDERERS  🎓')
+        .setColor(THEME)
+        .setDescription(
+          [
+            `> Trial orderers${roleId ? ` (<@&${roleId}>)` : ''} can accept orders. When they do, the orderer role is pinged so a full orderer supervises the ticket. 👀`,
+            DIVIDER,
+            '### ✅ Successful orders',
+            body || '*No trial orders yet.*',
+          ].join('\n'),
+        )
+        .setFooter({ text: '🔄 Updates live as trial orderers accept and complete orders' })
+        .setTimestamp(),
+    ],
+  };
+}
+
+// --- referrals ---
+
+export function referralPanel() {
+  return {
+    embeds: [
+      new EmbedBuilder()
+        .setTitle('🎉  FOODHUB REFERRALS — WIN-WIN!  🎉')
+        .setColor(THEME)
+        .setDescription(
+          [
+            'Refer **3 friends**, and if **2 place an order**, you score a **FREE FEE ORDER**! 🆓',
+            '',
+            '• **You both win:** They get a first-order discount, and you get yours upon confirmation. **No limits!**',
+            '• **Important:** They *must* join with **your personal invite link** so it counts. 🚀',
+            DIVIDER,
+            '### 📋 How it works',
+            '**1️⃣** Press **Get my invite link** and share it with friends 🔗',
+            '**2️⃣** They join and press **I was invited** for **50p off** their first order 🎟️',
+            '**3️⃣** Once 3 have joined and 2 have completed an order, press **Claim my reward** 🏆',
+            '**4️⃣** Put your code in the order form — the fee comes off automatically ✅',
+          ].join('\n'),
+        )
+        .setFooter({ text: '🎟️ Codes are personal and single-use • a cancelled order gives the code back' }),
+    ],
+    components: [
+      row(
+        button('ref:link', 'Get my invite link', ButtonStyle.Primary, '🔗'),
+        button('ref:claim', 'Claim my reward', ButtonStyle.Success, '🏆'),
+        button('ref:invited', 'I was invited', ButtonStyle.Secondary, '🎟️'),
+        button('ref:codes', 'My codes', ButtonStyle.Secondary, '📋'),
+      ),
+    ],
+  };
+}
+
+// A discount code: the bare code as the message text (easy to copy), the details in the embed.
+export function codeMessage(code, headline) {
+  const value = code.type === 'free' ? '🆓 **No service fee**' : `💷 **£${code.amount.toFixed(2)} off** the service fee`;
+  return {
+    content: code.code,
+    embeds: [
+      new EmbedBuilder()
+        .setColor(THEME)
+        .setTitle('🎟️ Your code')
+        .setDescription([headline, '', `🔑 **Code:** \`${code.code}\``, value, '📝 Enter it in the **Discount / referral code** box when you order.'].join('\n')),
+    ],
+    components: [row(button(`ref:copy:${code.code}`, 'Copy code', ButtonStyle.Secondary, '📋'))],
+  };
+}
+
+export function referralStatsEmbed(stats, { invites, orders, tracking }) {
+  const bar = (n, total) => '🟩'.repeat(Math.min(n, total)) + '⬜'.repeat(Math.max(0, total - n));
+  return new EmbedBuilder()
+    .setColor(THEME)
+    .setTitle('📊 Your referrals')
+    .setDescription(
+      [
+        `👥 **Friends joined:** ${stats.invited.length}/${invites} ${bar(stats.invited.length, invites)}`,
+        `🛒 **Completed an order:** ${stats.ordered.length}/${orders} ${bar(stats.ordered.length, orders)}`,
+        stats.rewarded.length ? `🏆 **Already rewarded for:** ${stats.rewarded.length} friends` : null,
+        '',
+        'Not quite there yet — keep sharing your link! 🚀',
+        tracking ? null : '\n⚠️ Invite tracking is currently off, so new joins aren\'t being counted. Let staff know.',
+      ]
+        .filter((l) => l !== null)
+        .join('\n'),
+    );
+}
+
+// --- bot suggestions ---
+
+// The list, split into as many embeds as it needs (Discord caps one at 4096 characters).
+export function suggestionListEmbeds(suggestions) {
+  const entries = suggestions.map((sg) => `**\`#${sg.number}\`** ${sg.text}\n└ 💡 <@${sg.userId}> · ${timestamp(sg.createdAt)}`);
+  const pages = [];
+  let page = '';
+  for (const entry of entries) {
+    if (page && page.length + entry.length + 2 > 3900) {
+      pages.push(page);
+      page = '';
+    }
+    page += `${page ? '\n\n' : ''}${entry}`;
+  }
+  if (page || !pages.length) pages.push(page || '*No suggestions yet — be the first!* ✨');
+  return pages.map((text, i) =>
+    new EmbedBuilder()
+      .setColor(THEME)
+      .setTitle(i === 0 ? `💡  BOT SUGGESTIONS  💡${suggestions.length ? ` (${suggestions.length})` : ''}` : null)
+      .setDescription(text),
+  );
+}
+
+export function suggestionSticky(count) {
+  return {
+    embeds: [
+      new EmbedBuilder()
+        .setColor(THEME)
+        .setTitle('💡 Got an idea for the bot?')
+        .setDescription(`Press **Add suggestion** and it goes straight onto the list above. ✨\n📋 **${count}** suggestion${count === 1 ? '' : 's'} so far.`),
+    ],
+    components: [
+      row(button('suggest:add', 'Add suggestion', ButtonStyle.Success, '➕'), button('suggest:clear', 'Clear list', ButtonStyle.Danger, '🧹')),
+    ],
+  };
+}
+
+export function suggestionModal() {
+  return new ModalBuilder()
+    .setCustomId('suggest:submit')
+    .setTitle('💡 Suggest something for the bot')
+    .addComponents(
+      row(
+        new TextInputBuilder()
+          .setCustomId('text')
+          .setLabel('Your suggestion')
+          .setStyle(TextInputStyle.Paragraph)
+          .setRequired(true)
+          .setMaxLength(800)
+          .setPlaceholder('e.g. Add a /reorder command that repeats my last order'),
+      ),
+    );
+}
+
+export function suggestionClearConfirm(count) {
+  return {
+    embeds: [new EmbedBuilder().setColor(THEME).setDescription(`🧹 Clear all **${count}** suggestions? This can't be undone.`)],
+    components: [row(button('suggest:clearyes', 'Yes, clear them', ButtonStyle.Danger, '🧹'))],
+  };
+}
+
+// --- applications ---
+
+export function applyPanel() {
+  return {
+    embeds: [
+      new EmbedBuilder()
+        .setTitle('📝  APPLICATIONS  📝')
+        .setColor(THEME)
+        .setDescription(
+          [
+            '> Want to join the team or partner with us? Apply below! 🚀',
+            DIVIDER,
+            '### 🧑‍🍳 Become an orderer',
+            'Answer a few quick questions in DMs: VC proof, vouches, order proof, other servers and your active times. Accepted applicants start as **trial orderers**. 🎓',
+            DIVIDER,
+            '### 🤝 Partner with us',
+            'Tell us about your server: invite link, members and what you\'re looking for.',
+            DIVIDER,
+            '📬 **Make sure your DMs are open** — the questions are sent there.',
+          ].join('\n'),
+        )
+        .setFooter({ text: '⏳ We review every application and DM you the result' }),
+    ],
+    components: [
+      row(
+        button('apply:orderer', 'Apply to be an orderer', ButtonStyle.Success, '🧑‍🍳'),
+        button('apply:partner', 'Apply to be a partner', ButtonStyle.Primary, '🤝'),
+      ),
+    ],
+  };
+}
+
+// One DM question. With `answered`, shows the question with its answer and no buttons.
+export function applicationQuestion(form, index, answered = null) {
+  const step = form.steps[index];
+  const embed = new EmbedBuilder()
+    .setColor(THEME)
+    .setTitle(`${form.title} — question ${index + 1}/${form.steps.length}`)
+    .setDescription(answered ? `${step.prompt}\n\n➡️ **${answered}**` : step.prompt);
+  if (answered) return { embeds: [embed] };
+  const buttons = [];
+  if (step.kind === 'yesno') buttons.push(button('apply:yes', 'Yes', ButtonStyle.Success, '✅'), button('apply:no', 'No', ButtonStyle.Danger, '✖️'));
+  if (step.kind === 'images' && step.skip) buttons.push(button('apply:skip', step.skip, ButtonStyle.Secondary, '🚫'));
+  buttons.push(button('apply:cancel', 'Cancel application', ButtonStyle.Secondary, '🗑️'));
+  embed.setFooter({ text: step.kind === 'yesno' ? 'Press a button' : step.kind === 'images' ? 'Send your images in one message' : 'Type your answer here' });
+  return { embeds: [embed], components: [row(...buttons)] };
+}
+
+const APPLICATION_STATUS = { pending: '🟡 Waiting for review', accepted: '✅ Accepted', denied: '❌ Denied', failed: '⚠️ Failed to send' };
+
+export function applicationEmbed(application, form) {
+  const embed = new EmbedBuilder()
+    .setColor(THEME)
+    .setTitle(`${form.title} #${application.id}`)
+    .setDescription(`👤 <@${application.userId}> (\`${application.userId}\`${application.userName ? ` · ${application.userName}` : ''})\n${APPLICATION_STATUS[application.status]}${application.reviewedBy ? ` by <@${application.reviewedBy}>` : ''}`)
+    .addFields(form.steps.map((st) => ({ name: st.label, value: String(application.answers[st.id] ?? '—').slice(0, 1024) })))
+    .setTimestamp(new Date(application.createdAt));
+  return embed;
+}
+
+export function applicationButtons(application) {
+  if (application.status !== 'pending') return [];
+  return [
+    row(
+      button(`apply:accept:${application.id}`, application.type === 'orderer' ? 'Accept (give trial role)' : 'Accept', ButtonStyle.Success, '✅'),
+      button(`apply:deny:${application.id}`, 'Deny', ButtonStyle.Danger, '❌'),
+    ),
+  ];
 }

@@ -18,6 +18,19 @@ export const commands = [
   panelCommand('whyfoodhub', 'Post the Why Food Hub panel'),
   panelCommand('staffpanel', 'Post the orderer control panel (online status & payment details)'),
   panelCommand('transcriptpanel', 'Post the staff panel for searching ticket transcripts by user ID'),
+  panelCommand('trialpanel', 'Post the trial orderer panel (their successful orders, updated live)'),
+  panelCommand('referralpanel', 'Post the referrals panel (invite links, rewards and codes)'),
+  panelCommand('suggestionpanel', 'Post (or move) the bot suggestions list and panel'),
+  panelCommand('applypanel', 'Post the orderer / partner applications panel'),
+
+  // In a ticket, instead of scrolling up to the buttons (staff only, checked by the bot)
+  new SlashCommandBuilder().setName('complete').setDescription('Complete the order in this ticket'),
+  new SlashCommandBuilder().setName('close').setDescription('Close this ticket (support tickets are deleted)'),
+  new SlashCommandBuilder().setName('delete').setDescription('Delete this ticket (a transcript is saved first)'),
+  new SlashCommandBuilder()
+    .setName('rename')
+    .setDescription('Rename this ticket channel')
+    .addStringOption((o) => o.setName('name').setDescription('New channel name').setRequired(true).setMaxLength(90)),
   new SlashCommandBuilder()
     .setName('giveaway')
     .setDescription('Start a giveaway (opens a form)')

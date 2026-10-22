@@ -55,16 +55,20 @@ export function feeSummary(promoList) {
 
 export const orderFee = (order) => order.fee ?? SERVICES[order.service].fee;
 
+// The fee after a discount code: 'free' codes remove it, 'discount' codes take `amount` off.
+export const discountedFee = (fee, code) => (code.type === 'free' ? 0 : Math.max(0, Math.round((fee - code.amount) * 100) / 100));
+
 // Payment methods orderers can save in the staff panel and request with
 // /paypal, /rev, /starling and /crypto.
 export const PAYMENT_METHODS = {
   paypal: { label: 'PayPal', emoji: '🅿️', command: 'paypal', kind: 'link', pattern: /^https:\/\/(www\.)?(paypal\.me|paypal\.com)\/\S+$/i, example: 'https://paypal.me/yourname' },
   revolut: { label: 'Revolut', emoji: '💳', command: 'rev', kind: 'link', pattern: /^https:\/\/(www\.)?revolut\.me\/\S+$/i, example: 'https://revolut.me/yourname' },
   starling: { label: 'Starling', emoji: '🏦', command: 'starling', kind: 'link', pattern: /^https:\/\/\S+$/i, example: 'https://settleup.starlingbank.com/yourname' },
+  wise: { label: 'Wise', emoji: '🌍', command: 'wise', kind: 'link', pattern: /^https:\/\/(www\.)?wise\.com\/\S+$/i, example: 'https://wise.com/pay/me/yourname' },
   ltc: { label: 'Litecoin (LTC)', emoji: '🪙', command: 'crypto', kind: 'address', pattern: /^(L|M|ltc1)[a-zA-HJ-NP-Z0-9]{25,62}$/, example: 'ltc1q… / L… / M…' },
 };
 
 export const SUPPORT_STATUS = {
-  open: { label: 'Open', emoji: '🟢' },
-  closed: { label: 'Closed', emoji: '🔒' },
+  open: { label: 'In progress', emoji: '👨‍💻' },
+  closed: { label: 'Completed', emoji: '✅' },
 };

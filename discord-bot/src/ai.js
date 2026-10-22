@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { PAYMENT_METHODS, SERVICES, STATUS } from './services.js';
 import { TOS } from './tos.js';
-import { COLORS, ephemeral, hasRole, isAdmin, panel } from './util.js';
+import { COLORS, ephemeral, hasRole, isAdmin, isOrderer, panel } from './util.js';
 import { aiButtons, aiQuestionModal } from './views.js';
 
 // Support tickets get a calm support assistant; the general chat and order
@@ -266,7 +266,7 @@ export function createAiHandlers({ client, config, store, promos }) {
     const order = store.orderByTicket(message.channelId);
     if (order) {
       // Orderers talk to the customer here, so only a direct @ping of the bot gets an answer from them.
-      const isStaff = hasRole(message.member, config.ordererRoleId) || Boolean(message.member?.permissions?.has('ManageGuild'));
+      const isStaff = isOrderer(message.member, config) || Boolean(message.member?.permissions?.has('ManageGuild'));
       if (mentioned || (repliedToBot && !isStaff)) return chatReply(message, { withOrders: message.author.id === order.customerId });
       return;
     }

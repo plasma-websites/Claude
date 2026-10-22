@@ -4,6 +4,9 @@ import path from 'node:path';
 // Orders that count towards a member's open-order limit. Completed orders are
 // done for the customer even while their ticket waits to auto-close.
 const OPEN = new Set(['pending', 'accepted']);
+const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O or 1/I to mix up
+export const REFERRAL_INVITES = 3;
+export const REFERRAL_ORDERS = 2;
 const now = () => new Date().toISOString();
 
 // Random 6-digit number not already used as a key in `taken`.
@@ -20,7 +23,12 @@ function randomId(taken) {
 export class Store {
   constructor(file) {
     this.file = file;
-    this.data = { orders: {}, support: {}, vouches: [], payments: {}, staff: {}, questions: {}, giveaways: {}, meta: {} };
+    this.data = {
+      orders: {}, support: {}, vouches: [], payments: {}, staff: {}, questions: {}, giveaways: {}, codes: {}, suggestions: [], applications: {},
+      referrals: { links: {}, joins: {}, rewarded: [], discountClaimed: [] },
+      meta: {},
+    };
+    this.onCodeReleased = null; // called with a code that's usable again after its order was cancelled
     if (fs.existsSync(file)) Object.assign(this.data, JSON.parse(fs.readFileSync(file, 'utf8')));
   }
 
@@ -87,8 +95,10 @@ export class Store {
   updateOrder(id, changes) {
     const order = this.getOrder(id);
     if (!order) return null;
+    const cancelling = changes.status === 'cancelled' && order.status !== 'cancelled';
     Object.assign(order, changes, { updatedAt: now() });
     this.save();
+    if (cancelling && order.code) this.#releaseCode(order); // a cancelled order gives its discount code back
     return order;
   }
 
@@ -119,7 +129,30 @@ export class Store {
   }
 
   complete(id, closeAt) {
-    return this.#transition(id, ['accepted'], { status: 'completed', closeAt: closeAt.toISOString() });
+    return this.#transition(id, ['accepted'], { status: 'completed', closeAt: closeAt.toISOString(), completedAt: now() });
+  }
+
+  // Staff pressed "Keep ticket open": the completed ticket won't auto-delete.
+  keepOpen(id) {
+    return this.#transition(id, ['completed'], { closeAt: null });
+  }
+
+  // Staff cancel from the ticket (any time before it's completed).
+  staffCancel(id, actorId, reason = null) {
+    return this.#transition(id, ['pending', 'accepted'], { status: 'cancelled', cancelledBy: actorId, cancelReason: reason });
+  }
+
+  // Trial orderers' orders, by trial orderer: { userId: { completed: [order], inProgress: [order] } }.
+  trialStats() {
+    const stats = {};
+    for (const o of Object.values(this.data.orders)) {
+      if (!o.trial || !o.ordererId) continue;
+      const s = (stats[o.ordererId] ??= { completed: [], inProgress: [] });
+      if (o.completedAt) s.completed.push(o);
+      else if (o.status === 'accepted') s.inProgress.push(o);
+    }
+    for (const s of Object.values(stats)) s.completed.sort((a, b) => b.completedAt.localeCompare(a.completedAt));
+    return stats;
   }
 
   close(id) {
@@ -221,9 +254,34 @@ export class Store {
     return (this.data.staff[userId] ??= { online: [], payments: {} });
   }
 
-  setOnline(userId, services) {
-    Object.assign(this.#staff(userId), { online: services, onlineSince: services.length ? now() : null });
+  // `until` (a Date) is when they're automatically set offline again.
+  setOnline(userId, services, until = null) {
+    const staff = this.#staff(userId);
+    Object.assign(staff, { online: services, onlineSince: services.length ? now() : null, onlineUntil: services.length && until ? until.toISOString() : null });
+    if (services.length) staff.usualServices = services;
     this.save();
+  }
+
+  // Staff whose online time has run out.
+  expiredOnline(at = Date.now()) {
+    return Object.entries(this.data.staff)
+      .filter(([, s]) => s.online?.length && s.onlineUntil && Date.parse(s.onlineUntil) <= at)
+      .map(([userId]) => userId);
+  }
+
+  setSchedule(userId, schedule) {
+    this.#staff(userId).schedule = schedule;
+    this.save();
+  }
+
+  // Remembers that a scheduled "are you online?" DM was sent, so it's sent once per slot.
+  markPrompted(userId, key) {
+    this.#staff(userId).lastPrompt = key;
+    this.save();
+  }
+
+  allStaff() {
+    return Object.entries(this.data.staff);
   }
 
   getStaff(userId) {
@@ -234,6 +292,7 @@ export class Store {
   onlineByService() {
     const result = {};
     for (const [userId, s] of Object.entries(this.data.staff)) {
+      if (s.onlineUntil && Date.parse(s.onlineUntil) <= Date.now()) continue; // timed out, waiting for the next check
       for (const service of s.online ?? []) (result[service] ??= []).push(userId);
     }
     return result;
@@ -333,5 +392,149 @@ export class Store {
 
   dueGiveaways(at = Date.now()) {
     return Object.values(this.data.giveaways).filter((g) => g.status === 'running' && Date.parse(g.endsAt) <= at);
+  }
+
+  // --- discount codes ---
+
+  // type 'free' = no service fee; 'discount' = `amount` pounds off the fee.
+  createCode({ type, ownerId, amount = 0, reason }) {
+    let code;
+    do code = `FH-${Array.from({ length: 6 }, () => CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]).join('')}`;
+    while (this.data.codes[code]);
+    const entry = { code, type, amount, ownerId, reason, status: 'active', orderId: null, createdAt: now() };
+    this.data.codes[code] = entry;
+    this.save();
+    return entry;
+  }
+
+  getCode(code) {
+    return this.data.codes[String(code ?? '').trim().toUpperCase()] ?? null;
+  }
+
+  codesFor(userId) {
+    return Object.values(this.data.codes).filter((c) => c.ownerId === userId);
+  }
+
+  // Checks a code typed into the order form.
+  checkCode(code, userId) {
+    const entry = this.getCode(code);
+    if (!entry) return { error: `\`${String(code).trim()}\` isn't a valid code.` };
+    if (entry.ownerId !== userId) return { error: 'That code belongs to someone else — codes are personal.' };
+    if (entry.status !== 'active') return { error: `Code \`${entry.code}\` has already been used on order #${entry.orderId}.` };
+    return { code: entry };
+  }
+
+  redeemCode(code, userId, orderId) {
+    const result = this.checkCode(code, userId);
+    if (result.error) return result;
+    Object.assign(result.code, { status: 'used', orderId, usedAt: now() });
+    this.save();
+    return result;
+  }
+
+  #releaseCode(order) {
+    const entry = this.getCode(order.code);
+    if (!entry || entry.status !== 'used' || entry.orderId !== order.id) return;
+    Object.assign(entry, { status: 'active', orderId: null, usedAt: null });
+    this.save();
+    this.onCodeReleased?.(entry, order);
+  }
+
+  // --- referrals ---
+
+  setInviteLink(userId, inviteCode) {
+    this.data.referrals.links[userId] = inviteCode;
+    this.save();
+  }
+
+  inviteLinkOf(userId) {
+    return this.data.referrals.links[userId] ?? null;
+  }
+
+  inviteOwner(inviteCode) {
+    return Object.entries(this.data.referrals.links).find(([, code]) => code === inviteCode)?.[0] ?? null;
+  }
+
+  // First join only: someone who leaves and rejoins through another link still counts for the first referrer.
+  recordJoin(inviteeId, referrerId) {
+    if (inviteeId === referrerId || this.data.referrals.joins[inviteeId]) return false;
+    this.data.referrals.joins[inviteeId] = { referrerId, joinedAt: now() };
+    this.save();
+    return true;
+  }
+
+  referrerOf(inviteeId) {
+    return this.data.referrals.joins[inviteeId]?.referrerId ?? null;
+  }
+
+  hasCompletedOrder(userId) {
+    return Object.values(this.data.orders).some((o) => o.customerId === userId && o.completedAt);
+  }
+
+  // { invited: [ids], ordered: [ids that completed an order and haven't been used for a reward yet], rewarded }
+  referralStats(userId) {
+    const invited = Object.entries(this.data.referrals.joins).filter(([, j]) => j.referrerId === userId).map(([id]) => id);
+    const rewarded = invited.filter((id) => this.data.referrals.rewarded.includes(id));
+    const ordered = invited.filter((id) => !rewarded.includes(id) && this.hasCompletedOrder(id));
+    return { invited, ordered, rewarded };
+  }
+
+  // 3 people invited and 2 of them ordered = one free-fee code. Repeatable: each reward uses up 2 new orderers.
+  claimReferralReward(userId) {
+    const stats = this.referralStats(userId);
+    if (stats.invited.length < REFERRAL_INVITES || stats.ordered.length < REFERRAL_ORDERS) return { error: 'not_yet', stats };
+    this.data.referrals.rewarded.push(...stats.ordered.slice(0, REFERRAL_ORDERS));
+    const code = this.createCode({ type: 'free', ownerId: userId, reason: `Referral reward (${stats.ordered.slice(0, REFERRAL_ORDERS).join(', ')})` });
+    return { code, stats: this.referralStats(userId) };
+  }
+
+  // The invited member's one-off first-order discount.
+  claimInviteeDiscount(userId, amount) {
+    const referrerId = this.referrerOf(userId);
+    if (!referrerId) return { error: 'not_invited' };
+    if (this.data.referrals.discountClaimed.includes(userId)) return { error: 'claimed' };
+    if (this.hasCompletedOrder(userId)) return { error: 'ordered' };
+    this.data.referrals.discountClaimed.push(userId);
+    return { code: this.createCode({ type: 'discount', amount, ownerId: userId, reason: `Invited by ${referrerId}` }) };
+  }
+
+  // --- bot suggestions ---
+
+  addSuggestion({ userId, text }) {
+    const suggestion = { number: (this.data.suggestions.at(-1)?.number ?? 0) + 1, userId, text, createdAt: now() };
+    this.data.suggestions.push(suggestion);
+    this.save();
+    return suggestion;
+  }
+
+  clearSuggestions() {
+    this.data.suggestions = [];
+    this.save();
+  }
+
+  // --- orderer & partner applications ---
+
+  createApplication(application) {
+    const id = randomId(this.data.applications);
+    const entry = { id, status: 'pending', createdAt: now(), ...application };
+    this.data.applications[id] = entry;
+    this.save();
+    return entry;
+  }
+
+  getApplication(id) {
+    return this.data.applications[id] ?? null;
+  }
+
+  updateApplication(id, changes) {
+    const entry = this.getApplication(id);
+    if (!entry) return null;
+    Object.assign(entry, changes);
+    this.save();
+    return entry;
+  }
+
+  pendingApplication(userId, type) {
+    return Object.values(this.data.applications).find((a) => a.userId === userId && a.type === type && a.status === 'pending') ?? null;
   }
 }

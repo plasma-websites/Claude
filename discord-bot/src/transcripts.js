@@ -35,7 +35,9 @@ function renderEntries(entries) {
   const readable = (text) => text.replace(/<@!?(\d+)>/g, (_, id) => `@${names[id] ?? id}`).replace(/<@&(\d+)>/g, '@role').replace(/<#(\d+)>/g, '#channel');
   return entries
     .map((e) => {
-      const lines = [`[${stamp(e.at)}] ${e.author}${e.bot ? ' [BOT]' : ''} (${e.authorId}):${e.content ? ` ${readable(e.content)}` : ''}`];
+      // Without the Message Content intent Discord sends members' messages with no text.
+      const hidden = !e.content && !e.bot && !e.embeds.length && !e.attachments.length ? ' (text not saved: Message Content Intent was off)' : '';
+      const lines = [`[${stamp(e.at)}] ${e.author}${e.bot ? ' [BOT]' : ''} (${e.authorId}):${e.content ? ` ${readable(e.content)}` : hidden}`];
       for (const embed of e.embeds) lines.push(...readable(embed).split('\n').map((l) => `    ┃ ${l}`));
       for (const a of e.attachments) lines.push(`    📎 ${a.name} — ${a.url}`);
       return lines.join('\n');
@@ -177,6 +179,7 @@ export function createTranscripts({ client, config, store }) {
         `👤 <@${userId}> (\`${userId}\`)`,
         orders.length ? `\n🧾 **${orders.length} order(s)**\n${list(orders)}` : '\n🧾 No orders.',
         support.length ? `\n🎫 **${support.length} support ticket(s)**\n${list(support)}` : null,
+        config.messageContent ? null : '\n⚠️ **Message Content Intent is off**, so what members type isn\'t being saved. Turn it on: Developer Portal → your app → **Bot** → **Message Content Intent**, then restart the bot.',
       ]
         .filter(Boolean)
         .join('\n'),

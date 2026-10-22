@@ -1,11 +1,16 @@
 import { ChannelType, EmbedBuilder, MessageFlags, OverwriteType, PermissionFlagsBits as P } from 'discord.js';
 
-export const COLORS = { brand: 0x5865f2, success: 0x57f287, warning: 0xfee75c, danger: 0xed4245, info: 0x5865f2 };
+// One-tone look: every embed the bot sends uses the same colour, BRAND_COLOR in
+// .env (e.g. #ff7a00), default Discord blurple. The COLORS names are kept so
+// callers still say what a message means.
+const parseColor = (hex) => (/^#?[0-9a-f]{6}$/i.test(hex ?? '') ? parseInt(hex.replace('#', ''), 16) : null);
+export const THEME = parseColor(process.env.BRAND_COLOR) ?? 0x5865f2;
+export const COLORS = { brand: THEME, success: THEME, warning: THEME, danger: THEME, info: THEME };
 
 // The bot never sends bare text: every message is an embed. `panel` builds a
 // small one from a line of text; `say`/`ephemeral` wrap it into a message.
-export function panel(text, { title, color = COLORS.brand } = {}) {
-  const embed = new EmbedBuilder().setColor(color).setDescription(text);
+export function panel(text, { title } = {}) {
+  const embed = new EmbedBuilder().setColor(THEME).setDescription(text);
   return title ? embed.setTitle(title) : embed;
 }
 
@@ -19,6 +24,10 @@ export function hasRole(member, roleId) {
 }
 
 export const isAdmin = (interaction) => Boolean(interaction.memberPermissions?.has(P.ManageGuild));
+
+// Orderers and trial orderers can take and run orders.
+export const isOrderer = (member, config) => hasRole(member, config.ordererRoleId) || Boolean(config.trialRoleId && hasRole(member, config.trialRoleId));
+export const isTrial = (member, config) => Boolean(config.trialRoleId && hasRole(member, config.trialRoleId) && !hasRole(member, config.ordererRoleId));
 
 export function dm(client, userId, payload) {
   const message = typeof payload === 'string' ? say(payload) : payload;

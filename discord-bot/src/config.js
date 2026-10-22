@@ -37,6 +37,9 @@ export function loadConfig(required) {
     guildId: process.env.GUILD_ID,
     staffChannelId: process.env.STAFF_ORDERS_CHANNEL_ID,
     ordererRoleId: process.env.ORDERER_ROLE_ID,
+    trialRoleId: process.env.TRIAL_ORDERER_ROLE_ID || null,
+    applicationsChannelId: process.env.APPLICATIONS_CHANNEL_ID || process.env.STAFF_ORDERS_CHANNEL_ID,
+    timezone: process.env.TIMEZONE || 'Europe/London',
     supportRoleId: process.env.SUPPORT_ROLE_ID || process.env.ORDERER_ROLE_ID,
     ticketCategoryId: process.env.TICKET_CATEGORY_ID,
     supportCategoryId: process.env.SUPPORT_CATEGORY_ID, // falls back to the ticket category at startup

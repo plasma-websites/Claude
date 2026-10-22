@@ -33,11 +33,11 @@ test('order flow components', () => {
   assert.deepEqual(promo.options.map((o) => o.label), ['10 off', '12 off']);
   const trains = views.promoPicker('ubertrain', promos.ubertrain).embeds[0].toJSON().description;
   assert.ok(trains.includes('£1.00–£2.50'));
-  assert.deepEqual(views.detailsModal('ubertrain', '0', 'no').toJSON().components.map((r) => r.components[0].custom_id), ['from', 'to', 'when', 'notes']);
+  assert.deepEqual(views.detailsModal('ubertrain', '0', 'no').toJSON().components.map((r) => r.components[0].custom_id), ['from', 'to', 'when', 'notes', 'code']);
   assert.deepEqual(ids(views.vcPicker('deliveroo', '0').components), ['order:vc:deliveroo:0:yes', 'order:vc:deliveroo:0:no']);
   const modal = views.detailsModal('uberride', '0', 'yes').toJSON();
   assert.equal(modal.custom_id, 'order:details:uberride:0:yes');
-  assert.deepEqual(modal.components.map((r) => r.components[0].custom_id), ['pickup', 'dropoff', 'notes']);
+  assert.deepEqual(modal.components.map((r) => r.components[0].custom_id), ['pickup', 'dropoff', 'notes', 'code']);
   for (const key of Object.keys(SERVICES)) {
     const json = views.detailsModal(key, '0', 'no').toJSON();
     assert.ok(json.title.length <= 45 && json.components.length <= 5 && json.components.every((r) => r.components[0].label.length <= 45));
@@ -47,10 +47,10 @@ test('order flow components', () => {
 test('ticket names carry status emoji and order number', () => {
   assert.equal(views.orderTicketName({ ...order, status: 'accepted' }), '🔵-order-483920');
   assert.equal(views.orderTicketName({ ...order, status: 'accepted', customerName: 'Plasma.Dev' }), '🔵-order-483920-plasma-dev');
-  assert.equal(views.supportTicketName({ id: 813501, status: 'open', userName: 'plasma' }), '🟢-support-813501-plasma');
+  assert.equal(views.supportTicketName({ id: 813501, status: 'open', userName: 'plasma' }), '👨‍💻-support-813501-plasma');
   assert.equal(views.orderTicketName({ ...order, status: 'completed' }), '🟢-order-483920');
   assert.equal(views.orderTicketName({ ...order, status: 'closed' }), '🔒-order-483920');
-  assert.equal(views.supportTicketName({ id: 123456, status: 'open' }), '🟢-support-123456');
+  assert.equal(views.supportTicketName({ id: 123456, status: 'open' }), '👨‍💻-support-123456');
 });
 
 test('staff and ticket buttons follow status', () => {
@@ -58,10 +58,11 @@ test('staff and ticket buttons follow status', () => {
   assert.equal(views.askQuestionModal(483920).toJSON().custom_id, 'order:askq:483920');
   const accepted = { ...order, status: 'accepted', ordererId: '2', ticketChannelId: 'c' };
   assert.deepEqual(ids(views.staffButtons(accepted, 'g')), ['https://discord.com/channels/g/c']);
-  assert.deepEqual(ids(views.ticketButtons(accepted)), ['order:complete:483920', 'order:forfeit:483920', 'order:close:483920', 'order:delete:483920']);
-  assert.deepEqual(ids(views.ticketButtons({ ...accepted, status: 'pending', ordererId: null })), ['order:delete:483920'], 'forfeited ticket waits for a new orderer');
+  assert.deepEqual(ids(views.ticketButtons(accepted)), ['order:complete:483920', 'order:forfeit:483920', 'order:cancel:483920', 'order:close:483920', 'order:delete:483920']);
+  assert.deepEqual(ids(views.ticketButtons({ ...accepted, status: 'pending', ordererId: null })), ['order:cancel:483920', 'order:delete:483920'], 'forfeited ticket waits for a new orderer');
   const completed = { ...accepted, status: 'completed', closeAt: new Date().toISOString() };
-  assert.deepEqual(ids(views.ticketButtons(completed)), ['order:close:483920', 'order:delete:483920']);
+  assert.deepEqual(ids(views.ticketButtons(completed)), ['order:keepopen:483920', 'order:close:483920', 'order:delete:483920']);
+  assert.deepEqual(ids(views.ticketButtons({ ...completed, closeAt: null })), ['order:close:483920', 'order:delete:483920'], 'kept open');
   const closed = { ...completed, status: 'closed', closeAt: null };
   assert.deepEqual(ids(views.ticketButtons(closed)), ['order:delete:483920']);
   assert.deepEqual(views.staffButtons({ ...closed, ticketChannelId: null }, 'g'), [], 'no link once the ticket is deleted');
@@ -76,8 +77,8 @@ test('support, verify views and commands serialize', () => {
   assert.equal(views.supportModal().toJSON().custom_id, 'support:modal');
   const ticket = { id: 1, userId: '1', reason: 'x', status: 'open', createdAt: new Date().toISOString() };
   views.supportEmbed(ticket).toJSON();
-  assert.deepEqual(ids(views.supportButtons(ticket)), ['support:close', 'support:delete']);
-  assert.deepEqual(ids(views.supportButtons({ ...ticket, status: 'closed' })), ['support:delete']);
+  assert.deepEqual(ids(views.supportButtons(ticket)), ['support:close']);
+  assert.deepEqual(ids(views.supportButtons({ ...ticket, status: 'closed' })), []);
   assert.deepEqual(ids(views.verifyPanel('https://restorecord.com/verify/x').components), ['https://restorecord.com/verify/x']);
   views.supportPanel().components[0].toJSON();
   const names = commands.map((c) => c.toJSON().name);
@@ -167,9 +168,10 @@ test('staff panel, payment details and payment panel', async () => {
   const { PAYMENT_METHODS } = await import('../src/services.js');
   const panelJson = views.staffPanel();
   assert.equal(panelJson.components[0].toJSON().components[0].custom_id, 'staff:online');
-  assert.deepEqual(ids([panelJson.components[1]]), ['staff:offline', 'staff:payments', 'staff:me']);
+  assert.deepEqual(ids([panelJson.components[1]]), ['staff:offline', 'staff:schedule', 'staff:payments', 'staff:me']);
   const modal = views.paymentDetailsModal({ paypal: 'https://paypal.me/x' }).toJSON();
-  assert.equal(modal.components.length, 4);
+  assert.equal(modal.components.length, 5);
+  assert.ok(PAYMENT_METHODS.wise.pattern.test('https://wise.com/pay/me/sam'));
   assert.equal(modal.components[0].components[0].value, 'https://paypal.me/x');
 
   assert.ok(PAYMENT_METHODS.paypal.pattern.test('https://paypal.me/sam'));
