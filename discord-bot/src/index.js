@@ -186,12 +186,7 @@ client.on(Events.MessageCreate, (message) => {
 
 // If someone deletes a ticket channel by hand, close its order/support ticket too.
 client.on(Events.ChannelDelete, (channel) => {
-  const order = store.orderByTicket(channel.id);
-  if (order) {
-    if (['accepted', 'completed'].includes(order.status)) store.close(order.id);
-    const gone = store.updateOrder(order.id, { ticketChannelId: null, ticketMessageId: null }); // drops the "Open ticket" link
-    editMessage(client, gone.staffChannelId, gone.staffMessageId, { embeds: [orderEmbed(gone)], components: staffButtons(gone, config.guildId) });
-  }
+  orders.ticketDeleted(channel.id)?.catch((err) => console.error('Ticket delete cleanup failed:', err));
   const ticket = store.supportByChannel(channel.id);
   if (ticket?.status === 'open') store.updateSupport(ticket.id, { status: 'closed' });
 });
@@ -205,6 +200,10 @@ client.once(Events.ClientReady, async (c) => {
   } catch (err) {
     console.error('Could not set up the ticket category — tickets will be created outside a category:', err.message);
   }
+  await c.guilds
+    .fetch(config.guildId)
+    .then((guild) => orders.sweepDeletedTickets(guild))
+    .catch((err) => console.error('Deleted-ticket check failed:', err));
   const tick = () => orders.autoClose().catch((err) => console.error('Auto-close failed:', err));
   tick(); // catch up on tickets that came due while the bot was offline
   setInterval(tick, 60 * 1000);

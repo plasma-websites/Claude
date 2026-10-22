@@ -70,6 +70,30 @@ test('open orders and ticket lookups', () => {
   assert.equal(store.orderByTicket('chan').id, b.id);
 });
 
+test('completed orders and deleted tickets stop counting as open', () => {
+  const store = tempStore();
+  const done = newOrder(store);
+  store.accept(done.id, 'staff1');
+  store.complete(done.id, new Date(Date.now() + 2 * 3600e3));
+  assert.equal(store.openOrdersFor('cust').length, 0, 'completed order waiting to auto-close');
+
+  const accepted = newOrder(store);
+  store.accept(accepted.id, 'staff1');
+  store.updateOrder(accepted.id, { ticketChannelId: 'chan1' });
+  const forfeited = newOrder(store);
+  store.accept(forfeited.id, 'staff1');
+  store.updateOrder(forfeited.id, { ticketChannelId: 'chan2' });
+  store.forfeit(forfeited.id, 'staff1');
+  assert.equal(store.openOrdersFor('cust').length, 2);
+  assert.equal(store.ordersWithTickets().length, 2);
+
+  assert.equal(store.ticketDeleted(accepted.id).status, 'closed');
+  assert.equal(store.ticketDeleted(forfeited.id).status, 'cancelled');
+  assert.equal(store.openOrdersFor('cust').length, 0);
+  assert.equal(store.ordersWithTickets().length, 0);
+  assert.equal(store.getOrder(accepted.id).ticketChannelId, null);
+});
+
 test('support tickets: one open per user', () => {
   const store = tempStore();
   const t = store.createSupport({ userId: 'u', reason: 'help' });

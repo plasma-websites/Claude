@@ -109,9 +109,16 @@ export function createOrderHandlers({ client, config, store, promos }) {
     const open = store.openOrdersFor(interaction.user.id);
     if (open.length >= config.maxOpenOrders) {
       return interaction.reply(
-        ephemeral(`⛔ You already have **${open.length}** open order(s) (${open.map((o) => `#${o.id}`).join(', ')}). Please wait for them to finish first. ⏳`, {}, {
-          color: COLORS.danger,
-        }),
+        ephemeral(
+          [
+            `⛔ You already have **${open.length}** open order(s) (${open.map((o) => `#${o.id}`).join(', ')}). Please wait for them to finish first. ⏳`,
+            open.some((o) => o.status === 'pending') ? 'Not accepted yet and no longer need it? Use `/cancel id:` to cancel it.' : null,
+          ]
+            .filter(Boolean)
+            .join('\n'),
+          {},
+          { color: COLORS.danger },
+        ),
       );
     }
     const online = store.onlineByService()[serviceKey] ?? [];
@@ -396,9 +403,24 @@ export function createOrderHandlers({ client, config, store, promos }) {
     if (!isStaff(interaction)) return interaction.reply(ephemeral('Only staff can delete tickets.', {}, { color: COLORS.danger }));
     const order = store.getOrder(id);
     if (!order) return interaction.reply(ephemeral('That order no longer exists.'));
-    if (['accepted', 'completed'].includes(order.status)) await refreshStaffMessage(store.close(id).order);
     await interaction.reply(say(`🗑️ Deleting this ticket in 5 seconds… (by <@${interaction.user.id}>)`, {}, { color: COLORS.danger }));
     setTimeout(() => deleteChannel(client, order.ticketChannelId, `Deleted by ${interaction.user.tag}`), 5000);
+  }
+
+  // A ticket channel was deleted (Delete ticket, by hand, or while the bot was
+  // offline), so its order no longer counts as open.
+  function ticketDeleted(channelId) {
+    const order = store.orderByTicket(channelId);
+    if (!order) return;
+    return refreshStaffMessage(store.ticketDeleted(order.id));
+  }
+
+  // On startup: catch up on ticket channels deleted while the bot was offline.
+  async function sweepDeletedTickets(guild) {
+    for (const order of store.ordersWithTickets()) {
+      const gone = await guild.channels.fetch(order.ticketChannelId).then(() => false, (err) => err.code === 10003); // Unknown Channel
+      if (gone) await ticketDeleted(order.ticketChannelId);
+    }
   }
 
   // Runs every minute: closes tickets whose auto-close time has passed.
@@ -425,5 +447,5 @@ export function createOrderHandlers({ client, config, store, promos }) {
     }
   }
 
-  return { handleComponent, handleDm, handleQuestion, autoClose };
+  return { handleComponent, handleDm, handleQuestion, autoClose, ticketDeleted, sweepDeletedTickets };
 }

@@ -1,7 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const OPEN = new Set(['pending', 'accepted', 'completed']);
+// Orders that count towards a member's open-order limit. Completed orders are
+// done for the customer even while their ticket waits to auto-close.
+const OPEN = new Set(['pending', 'accepted']);
 const now = () => new Date().toISOString();
 
 // Random 6-digit number not already used as a key in `taken`.
@@ -122,6 +124,20 @@ export class Store {
 
   close(id) {
     return this.#transition(id, ['accepted', 'completed'], { status: 'closed', closeAt: null });
+  }
+
+  // The order's ticket channel was deleted, so the order is over: close it, or
+  // cancel it if it was back in the queue after a forfeit.
+  ticketDeleted(id) {
+    const order = this.getOrder(id);
+    if (!order) return null;
+    const status = { accepted: 'closed', completed: 'closed', pending: 'cancelled' }[order.status] ?? order.status;
+    return this.updateOrder(id, { status, closeAt: null, ticketChannelId: null, ticketMessageId: null });
+  }
+
+  // Orders whose ticket channel should exist, for checking on startup.
+  ordersWithTickets() {
+    return Object.values(this.data.orders).filter((o) => o.ticketChannelId && ['pending', 'accepted', 'completed'].includes(o.status));
   }
 
   // Customers can cancel only while nobody has accepted the order yet.
