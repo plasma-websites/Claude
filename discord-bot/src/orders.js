@@ -39,7 +39,7 @@ const MAX_SCREENSHOT_BYTES = 10 * 1024 * 1024;
 // Order flow: company -> promo -> VC yes/no -> address form -> screenshot in DMs -> staff channel
 // -> Accept creates a ticket -> (Forfeit puts it back in the queue) -> Complete order
 // -> ticket auto-closes (locks) -> staff delete it.
-export function createOrderHandlers({ client, config, store, promos }) {
+export function createOrderHandlers({ client, config, store, promos, transcripts }) {
   // Members who finished the questions and still owe us a screenshot, by user ID.
   const awaitingScreenshot = new Map();
 
@@ -366,14 +366,14 @@ export function createOrderHandlers({ client, config, store, promos }) {
 
   async function complete(interaction, id) {
     if (!isStaff(interaction)) return interaction.reply(ephemeral('Only staff can complete orders.', {}, { color: COLORS.danger }));
-    const closeAt = new Date(Date.now() + config.autoCloseHours * 60 * 60 * 1000);
+    const closeAt = new Date(Date.now() + config.autoDeleteHours * 60 * 60 * 1000);
     const result = store.complete(id, closeAt);
     if (result.error) return interaction.reply(ephemeral(result.error, {}, { color: COLORS.danger }));
     const order = result.order;
     await interaction.update({ embeds: [orderEmbed(order)], components: ticketButtons(order) });
     renameChannel(client, order.ticketChannelId, orderTicketName(order));
     await interaction.channel.send(
-      say(`🧑‍🍳 Completed by <@${interaction.user.id}>!\n⏳ This ticket will close automatically <t:${Math.floor(closeAt / 1000)}:R>.`, {}, {
+      say(`🧑‍🍳 Completed by <@${interaction.user.id}>!\n⏳ This ticket will be deleted automatically <t:${Math.floor(closeAt / 1000)}:R>. A transcript is saved.`, {}, {
         title: '🎉 Order completed',
         color: COLORS.success,
       }),
@@ -403,8 +403,10 @@ export function createOrderHandlers({ client, config, store, promos }) {
     if (!isStaff(interaction)) return interaction.reply(ephemeral('Only staff can delete tickets.', {}, { color: COLORS.danger }));
     const order = store.getOrder(id);
     if (!order) return interaction.reply(ephemeral('That order no longer exists.'));
-    await interaction.reply(say(`🗑️ Deleting this ticket in 5 seconds… (by <@${interaction.user.id}>)`, {}, { color: COLORS.danger }));
-    setTimeout(() => deleteChannel(client, order.ticketChannelId, `Deleted by ${interaction.user.tag}`), 5000);
+    await interaction.reply(say(`🗑️ Deleting this ticket in 5 seconds… (by <@${interaction.user.id}>)\n📜 A transcript is being saved.`, {}, { color: COLORS.danger }));
+    const channelId = order.ticketChannelId;
+    await Promise.all([transcripts.saveChannel(channelId), new Promise((resolve) => setTimeout(resolve, 5000))]);
+    await deleteChannel(client, channelId, `Deleted by ${interaction.user.tag}`);
   }
 
   // A ticket channel was deleted (Delete ticket, by hand, or while the bot was
@@ -423,9 +425,19 @@ export function createOrderHandlers({ client, config, store, promos }) {
     }
   }
 
-  // Runs every minute: closes tickets whose auto-close time has passed.
+  // Runs every minute: saves a transcript of, then deletes, tickets whose
+  // auto-delete time has passed. If the channel can't be deleted it's locked instead.
   async function autoClose() {
-    for (const order of store.dueForClose()) await closeTicket(order, `🔒 Ticket auto-closed ${config.autoCloseHours}h after the order was completed.`);
+    for (const order of store.dueForClose()) {
+      const channelId = order.ticketChannelId;
+      await transcripts.saveChannel(channelId);
+      if (await deleteChannel(client, channelId, `Auto-deleted ${config.autoDeleteHours}h after the order was completed`)) {
+        await ticketDeleted(channelId); // in case the channel-delete event is missed
+        dm(client, order.customerId, `🗑️ Your ticket for **${label(order)}** has been closed. Thanks for ordering with us! 💛`);
+      } else {
+        await closeTicket(order, '🔒 Ticket auto-closed (I couldn\'t delete it — check I have **Manage Channels**).');
+      }
+    }
   }
 
   async function handleComponent(interaction) {

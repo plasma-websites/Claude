@@ -11,6 +11,8 @@ import { TOS } from './tos.js';
 import { WHY_FOOD_HUB, WHY_OVER_FOODPLUG } from './whyfoodhub.js';
 import { COLORS, editMessage, ensureTicketCategory, ephemeral, isAdmin } from './util.js';
 import { createVouchHandlers } from './vouches.js';
+import { createGiveawayHandlers } from './giveaways.js';
+import { createTranscripts } from './transcripts.js';
 import {
   announceModal,
   announcementEmbed,
@@ -20,6 +22,7 @@ import {
   staffPanel,
   supportPanel,
   tosPanel,
+  transcriptPanel,
   verifyPanel,
   whyFoodHubEmbed,
   whyOverFoodplugEmbed,
@@ -43,9 +46,11 @@ async function messageContentEnabled() {
 }
 
 const intents = [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.DirectMessages];
+// Transcripts need the text of ticket messages, so ask for it whenever it's switched on.
+const messageContent = await messageContentEnabled();
+if (messageContent) intents.push(GatewayIntentBits.MessageContent);
+else console.log('Message Content intent is off: transcripts will miss what members type, and Food Hub AI only answers @mentions. Turn it on in the Developer Portal → Bot.');
 if (process.env.ANTHROPIC_API_KEY) {
-  if (await messageContentEnabled()) intents.push(GatewayIntentBits.MessageContent);
-  else console.log('Message Content intent is off: Food Hub AI will only answer @mentions and replies. Turn it on in the Developer Portal → Bot.');
   console.log(`Food Hub AI on. Chat channels: ${config.chatChannelIds.join(', ') || 'none (set CHAT_CHANNEL_IDS) — it still answers direct pings anywhere'}`);
 }
 const client = new Client({
@@ -55,10 +60,12 @@ const client = new Client({
 
 const ctx = { client, config, store, promos };
 ctx.ai = createAiHandlers(ctx);
+ctx.transcripts = createTranscripts(ctx);
 const orders = createOrderHandlers(ctx);
 const support = createSupportHandlers(ctx);
 const staff = createStaffHandlers(ctx);
 const vouches = createVouchHandlers(ctx);
+const giveaways = createGiveawayHandlers(ctx);
 
 async function handleCommand(interaction) {
   const name = interaction.commandName;
@@ -71,7 +78,8 @@ async function handleCommand(interaction) {
     case 'verifypanel':
     case 'tos':
     case 'whyfoodhub':
-    case 'staffpanel': {
+    case 'staffpanel':
+    case 'transcriptpanel': {
       if (name === 'verifypanel' && !config.verifyUrl) {
         return interaction.reply(ephemeral('Set `VERIFY_URL` in `.env` to your RestoreCord / VaultCord verify link first, then restart the bot.'));
       }
@@ -83,6 +91,7 @@ async function handleCommand(interaction) {
         tos: () => tosPanel(TOS),
         whyfoodhub: whyPanel,
         staffpanel: staffPanel,
+        transcriptpanel: transcriptPanel,
       }[name]();
       try {
         const message = await channel.send(panel);
@@ -97,6 +106,9 @@ async function handleCommand(interaction) {
       if (!config.vouchChannelId) return interaction.reply(ephemeral('Set `VOUCH_CHANNEL_ID` in `.env` first, then restart the bot.'));
       await vouches.refreshSticky();
       return interaction.reply(ephemeral(`⭐ Vouch panel posted at the bottom of <#${config.vouchChannelId}>.`));
+
+    case 'giveaway':
+      return giveaways.start(interaction);
 
     case 'announce': {
       const channel = interaction.options.getChannel('channel') ?? interaction.channel;
@@ -163,6 +175,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
     if (interaction.customId.startsWith('pay:')) return await staff.handlePaymentButton(interaction);
     if (interaction.customId.startsWith('ai:')) return await ctx.ai.handleComponent(interaction);
     if (interaction.customId.startsWith('q:')) return await orders.handleQuestion(interaction);
+    if (interaction.customId.startsWith('giveaway:')) return await giveaways.handleComponent(interaction);
+    if (interaction.customId.startsWith('transcript:')) return await ctx.transcripts.handleComponent(interaction);
     if (interaction.customId === 'why:hub') return await interaction.reply({ embeds: [whyFoodHubEmbed(WHY_FOOD_HUB)], flags: MessageFlags.Ephemeral });
     if (interaction.customId === 'why:foodplug') {
       return await interaction.reply({ embeds: [whyOverFoodplugEmbed(WHY_OVER_FOODPLUG)], flags: MessageFlags.Ephemeral });
@@ -176,6 +190,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 });
 
 client.on(Events.MessageCreate, (message) => {
+  if (message.guildId) ctx.transcripts.record(message); // every ticket message, the bot's own included
   if (message.author.bot) return;
   if (message.guildId) {
     if (message.channelId === config.vouchChannelId) return void vouches.handleChannelMessage(message).catch((err) => console.error('Vouch channel check failed:', err));
@@ -207,6 +222,9 @@ client.once(Events.ClientReady, async (c) => {
   const tick = () => orders.autoClose().catch((err) => console.error('Auto-close failed:', err));
   tick(); // catch up on tickets that came due while the bot was offline
   setInterval(tick, 60 * 1000);
+  const giveawayTick = () => giveaways.tick().catch((err) => console.error('Giveaway check failed:', err));
+  giveawayTick(); // ends giveaways that finished while the bot was offline
+  setInterval(giveawayTick, 15 * 1000);
 });
 
 client.login(config.token);

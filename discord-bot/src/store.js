@@ -20,7 +20,7 @@ function randomId(taken) {
 export class Store {
   constructor(file) {
     this.file = file;
-    this.data = { orders: {}, support: {}, vouches: [], payments: {}, staff: {}, questions: {}, meta: {} };
+    this.data = { orders: {}, support: {}, vouches: [], payments: {}, staff: {}, questions: {}, giveaways: {}, meta: {} };
     if (fs.existsSync(file)) Object.assign(this.data, JSON.parse(fs.readFileSync(file, 'utf8')));
   }
 
@@ -52,7 +52,7 @@ export class Store {
       .slice(0, limit);
   }
 
-  // Completed orders whose ticket is due to auto-close.
+  // Completed orders whose ticket is due to be auto-deleted.
   dueForClose(at = Date.now()) {
     return Object.values(this.data.orders).filter((o) => o.status === 'completed' && o.closeAt && Date.parse(o.closeAt) <= at);
   }
@@ -276,6 +276,12 @@ export class Store {
     return Object.values(this.data.support).find((t) => t.channelId === channelId) ?? null;
   }
 
+  supportFor(userId) {
+    return Object.values(this.data.support)
+      .filter((t) => t.userId === userId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
   createSupport({ userId, userName = null, reason }) {
     const id = randomId(this.data.support);
     const ticket = { id, userId, userName, reason, channelId: null, status: 'open', createdAt: now() };
@@ -290,5 +296,42 @@ export class Store {
     Object.assign(ticket, changes);
     this.save();
     return ticket;
+  }
+
+  // --- giveaways ---
+
+  createGiveaway({ title, info, winners, endsAt, hostId, channelId }) {
+    const id = randomId(this.data.giveaways);
+    const giveaway = { id, title, info, winners, endsAt, hostId, channelId, messageId: null, entrants: [], winnerIds: [], status: 'running', createdAt: now() };
+    this.data.giveaways[id] = giveaway;
+    this.save();
+    return giveaway;
+  }
+
+  getGiveaway(id) {
+    return this.data.giveaways[id] ?? null;
+  }
+
+  updateGiveaway(id, changes) {
+    const giveaway = this.getGiveaway(id);
+    if (!giveaway) return null;
+    Object.assign(giveaway, changes);
+    this.save();
+    return giveaway;
+  }
+
+  // Enters the member, or takes them out if they'd already entered.
+  toggleEntry(id, userId) {
+    const giveaway = this.getGiveaway(id);
+    if (!giveaway) return { error: 'That giveaway no longer exists.' };
+    if (giveaway.status !== 'running') return { error: 'This giveaway has ended.' };
+    const entered = !giveaway.entrants.includes(userId);
+    giveaway.entrants = entered ? [...giveaway.entrants, userId] : giveaway.entrants.filter((u) => u !== userId);
+    this.save();
+    return { giveaway, entered };
+  }
+
+  dueGiveaways(at = Date.now()) {
+    return Object.values(this.data.giveaways).filter((g) => g.status === 'running' && Date.parse(g.endsAt) <= at);
   }
 }

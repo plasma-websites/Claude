@@ -2,7 +2,7 @@ import { MessageFlags } from 'discord.js';
 import { COLORS, createTicketChannel, deleteChannel, editMessage, ephemeral, hasRole, isAdmin, lockTicket, panel, renameChannel, say } from './util.js';
 import { supportButtons, supportEmbed, supportModal, supportTicketName } from './views.js';
 
-export function createSupportHandlers({ client, config, store, ai }) {
+export function createSupportHandlers({ client, config, store, ai, transcripts }) {
   const isStaff = (interaction) => hasRole(interaction.member, config.supportRoleId) || isAdmin(interaction);
 
   async function open(interaction) {
@@ -69,8 +69,9 @@ export function createSupportHandlers({ client, config, store, ai }) {
     if (!isStaff(interaction)) return interaction.reply(ephemeral('Only staff can delete tickets.'));
     const ticket = store.supportByChannel(interaction.channelId);
     if (ticket?.status === 'open') store.updateSupport(ticket.id, { status: 'closed', closedBy: interaction.user.id });
-    await interaction.reply(say(`🗑️ Deleting this ticket in 5 seconds… (by <@${interaction.user.id}>)`, {}, { color: COLORS.danger }));
-    setTimeout(() => deleteChannel(client, interaction.channelId, `Deleted by ${interaction.user.tag}`), 5000);
+    await interaction.reply(say(`🗑️ Deleting this ticket in 5 seconds… (by <@${interaction.user.id}>)\n📜 A transcript is being saved.`, {}, { color: COLORS.danger }));
+    await Promise.all([transcripts.saveChannel(interaction.channelId), new Promise((resolve) => setTimeout(resolve, 5000))]);
+    await deleteChannel(client, interaction.channelId, `Deleted by ${interaction.user.tag}`);
   }
 
   function handleComponent(interaction) {

@@ -17,6 +17,14 @@ export const commands = [
   panelCommand('tos', 'Post the order policy & server rules'),
   panelCommand('whyfoodhub', 'Post the Why Food Hub panel'),
   panelCommand('staffpanel', 'Post the orderer control panel (online status & payment details)'),
+  panelCommand('transcriptpanel', 'Post the staff panel for searching ticket transcripts by user ID'),
+  new SlashCommandBuilder()
+    .setName('giveaway')
+    .setDescription('Start a giveaway (opens a form)')
+    .setDefaultMemberPermissions(P.ManageGuild)
+    .addChannelOption((o) =>
+      o.setName('channel').setDescription('Where to post it (default: this channel)').addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement),
+    ),
   new SlashCommandBuilder()
     .setName('vouchpanel')
     .setDescription('Post (or move to the bottom) the vouch panel in the vouch channel')

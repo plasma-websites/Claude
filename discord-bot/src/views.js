@@ -162,7 +162,7 @@ export function orderEmbed(order) {
     const value = order.details?.[f.id]?.trim();
     if (value) embed.addFields({ name: `${f.id === 'notes' ? '📝' : '📍'} ${f.label.replace(' (optional)', '')}`, value });
   }
-  if (order.closeAt) embed.addFields({ name: '⏳ Ticket auto-closes', value: timestamp(order.closeAt) });
+  if (order.closeAt) embed.addFields({ name: '⏳ Ticket auto-deletes', value: timestamp(order.closeAt) });
   return embed;
 }
 
@@ -676,4 +676,98 @@ export function answerEmbed(order, q) {
       { name: '🧑‍🍳 Asked by', value: `<@${q.askerId}>`, inline: true },
     )
     .setTimestamp(new Date(q.answeredAt));
+}
+
+// --- transcripts ---
+
+export function transcriptPanel() {
+  return {
+    embeds: [
+      new EmbedBuilder()
+        .setTitle('📜 Ticket transcripts')
+        .setColor(BRAND)
+        .setDescription(
+          [
+            'Every order and support ticket is saved before it\'s deleted.',
+            '',
+            '🔎 Press **Search by user ID** and paste a member\'s ID to get a transcript of every order they\'ve made (and their support tickets).',
+            '',
+            '*Staff only.*',
+          ].join('\n'),
+        ),
+    ],
+    components: [row(button('transcript:open', 'Search by user ID', ButtonStyle.Primary, '🔎'))],
+  };
+}
+
+export function transcriptSearchModal() {
+  return new ModalBuilder()
+    .setCustomId('transcript:search')
+    .setTitle('🔎 Search transcripts')
+    .addComponents(
+      row(
+        new TextInputBuilder()
+          .setCustomId('user')
+          .setLabel('User ID')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true)
+          .setMaxLength(40)
+          .setPlaceholder('e.g. 123456789012345678'),
+      ),
+    );
+}
+
+// --- giveaways ---
+
+export function giveawayModal(channelId) {
+  return new ModalBuilder()
+    .setCustomId(`giveaway:create:${channelId}`)
+    .setTitle('🎉 New giveaway')
+    .addComponents(
+      row(new TextInputBuilder().setCustomId('title').setLabel('Giveaway title').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(200)),
+      row(
+        new TextInputBuilder()
+          .setCustomId('duration')
+          .setLabel('Duration')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true)
+          .setMaxLength(10)
+          .setPlaceholder('e.g. 30m, 2h, 1d, 1w (max 28d)'),
+      ),
+      row(
+        new TextInputBuilder()
+          .setCustomId('winners')
+          .setLabel('Number of winners')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false)
+          .setMaxLength(2)
+          .setPlaceholder('1'),
+      ),
+      row(new TextInputBuilder().setCustomId('info').setLabel('Info about the giveaway').setStyle(TextInputStyle.Paragraph).setRequired(false).setMaxLength(3000)),
+    );
+}
+
+export function giveawayEmbed(g) {
+  const ended = g.status !== 'running';
+  const lines = [
+    g.info || null,
+    g.info ? '' : null,
+    ended ? `⏰ **Ended** ${timestamp(g.endsAt)}` : `⏰ **Ends** ${timestamp(g.endsAt)} (${timestamp(g.endsAt, 'f')})`,
+    `🏆 **Winners:** ${ended ? (g.winnerIds.length ? g.winnerIds.map((id) => `<@${id}>`).join(', ') : 'No valid entries 😢') : g.winners}`,
+    `🎟️ **Entries:** ${g.entrants.length}`,
+    `🎁 **Hosted by** <@${g.hostId}>`,
+    ended ? null : '',
+    ended ? null : 'Press **🎉 Enter** to join! Press it again to leave.',
+  ].filter((l) => l !== null);
+  return new EmbedBuilder()
+    .setTitle(`🎉 ${g.title}`)
+    .setColor(ended ? 0x99aab5 : 0xf1c40f)
+    .setDescription(lines.join('\n'))
+    .setFooter({ text: ended ? `Giveaway #${g.id} • ended` : `Giveaway #${g.id} • ${g.winners} winner${g.winners === 1 ? '' : 's'}` })
+    .setTimestamp(new Date(g.endsAt));
+}
+
+export function giveawayButtons(g) {
+  if (g.status === 'running') return [row(button(`giveaway:enter:${g.id}`, 'Enter', ButtonStyle.Success, '🎉'))];
+  return [row(button(`giveaway:enter:${g.id}`, 'Ended', ButtonStyle.Secondary, '🎉').setDisabled(true), button(`giveaway:reroll:${g.id}`, 'Reroll', ButtonStyle.Secondary, '🔁'))];
 }

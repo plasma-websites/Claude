@@ -66,7 +66,7 @@ test('staff and ticket buttons follow status', () => {
   assert.deepEqual(ids(views.ticketButtons(closed)), ['order:delete:483920']);
   assert.deepEqual(views.staffButtons({ ...closed, ticketChannelId: null }, 'g'), [], 'no link once the ticket is deleted');
   const fields = views.orderEmbed(completed).toJSON().fields.map((f) => f.name);
-  assert.ok(fields.some((f) => f.includes('VC')) && fields.some((f) => f.includes('auto-closes')) && fields.some((f) => f.includes('Staff')));
+  assert.ok(fields.some((f) => f.includes('VC')) && fields.some((f) => f.includes('auto-deletes')) && fields.some((f) => f.includes('Staff')));
   const withAddress = views.orderEmbed({ ...order, details: { address: '1 High St', notes: '' } }).toJSON().fields;
   assert.equal(withAddress.find((f) => f.name.includes('Delivery address')).value, '1 High St');
   assert.ok(!withAddress.some((f) => f.name.includes('Notes')), 'empty notes are hidden');

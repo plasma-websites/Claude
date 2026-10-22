@@ -45,9 +45,11 @@ export function loadConfig(required) {
     chatChannelIds: (process.env.CHAT_CHANNEL_IDS ?? '').split(',').map((s) => s.trim()).filter(Boolean),
     verifyUrl: process.env.VERIFY_URL || null,
     verifiedRoleId: process.env.VERIFIED_ROLE_ID || null,
-    autoCloseHours: Number(process.env.AUTO_CLOSE_HOURS) || 2,
+    // AUTO_CLOSE_HOURS is the old name, from when completed tickets were locked instead of deleted.
+    autoDeleteHours: Number(process.env.AUTO_DELETE_HOURS || process.env.AUTO_CLOSE_HOURS) || 2,
     maxOpenOrders: Number(process.env.MAX_OPEN_ORDERS) || 2,
     dataFile: `${dataDir}/store.json`,
     screenshotDir: `${dataDir}/screenshots`,
+    transcriptDir: `${dataDir}/transcripts`,
   };
 }

@@ -53,13 +53,17 @@ export function createTicketChannel(guild, { name, parent, memberIds, roleIds })
   });
 }
 
+// True when the channel is gone afterwards.
 export async function deleteChannel(client, channelId, reason) {
-  if (!channelId) return;
+  if (!channelId) return true;
   try {
     const channel = await client.channels.fetch(channelId);
     await channel.delete(reason);
+    return true;
   } catch (err) {
-    if (err.code !== 10003) console.error(`Could not delete channel ${channelId}:`, err.message); // 10003 = already gone
+    if (err.code === 10003) return true; // already gone
+    console.error(`Could not delete channel ${channelId}:`, err.message);
+    return false;
   }
 }
 

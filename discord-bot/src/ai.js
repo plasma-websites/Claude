@@ -27,7 +27,7 @@ Food Hub is a Discord community where members submit orders and Food Hub orderer
 Services, promos and service fees:
 ${services}
 
-How ordering works: pick the company on the order panel (it shows which orderers are online), pick a promo, answer "VC?" yes or no, fill in the address form, then send the order screenshot when the bot DMs you (DMs must be open; 15 minutes). An orderer accepts it and a private order ticket opens, named with a random 6-digit order number and the customer's username. Orderers may DM the customer questions before accepting. When payment is due the orderer posts a payment panel (${Object.values(PAYMENT_METHODS).map((m) => m.label).join(', ')}) with the amount in pounds; the customer pays, presses "I've paid", and the orderer confirms. If an orderer can't finish they can forfeit the order and another orderer takes over in the same ticket. When it's done the ticket closes automatically ${config.autoCloseHours} hours later. Members can have up to ${config.maxOpenOrders} open orders. /myorders shows your orders and /cancel cancels one before it's accepted. After a completed order you can leave one vouch per order in the vouch channel. Support tickets are opened from the support panel.
+How ordering works: pick the company on the order panel (it shows which orderers are online), pick a promo, answer "VC?" yes or no, fill in the address form, then send the order screenshot when the bot DMs you (DMs must be open; 15 minutes). An orderer accepts it and a private order ticket opens, named with a random 6-digit order number and the customer's username. Orderers may DM the customer questions before accepting. When payment is due the orderer posts a payment panel (${Object.values(PAYMENT_METHODS).map((m) => m.label).join(', ')}) with the amount in pounds; the customer pays, presses "I've paid", and the orderer confirms. If an orderer can't finish they can forfeit the order and another orderer takes over in the same ticket. When it's done the ticket is deleted automatically ${config.autoDeleteHours} hours later (staff keep a transcript). Members can have up to ${config.maxOpenOrders} open orders. /myorders shows your orders and /cancel cancels one before it's accepted. After a completed order you can leave one vouch per order in the vouch channel. Support tickets are opened from the support panel.
 
 Order policy & server rules:
 ${rules}
@@ -221,6 +221,16 @@ export function createAiHandlers({ client, config, store, promos }) {
 
   // --- routing ---
 
+  // True when the message replies to one of the AI's own chat messages. Panels
+  // (order details, payments, tickets…) are embeds, and replying to those
+  // isn't talking to the AI.
+  async function repliedToChatReply(message) {
+    const id = message.reference?.messageId;
+    if (!id) return false;
+    const replied = await message.channel.messages.fetch(id).catch(() => null);
+    return Boolean(replied && replied.author.id === client.user.id && !replied.embeds.length);
+  }
+
   // Decides whether a server message is for the bot, and which personality answers.
   async function handleMessage(message) {
     if (!enabled) return;
@@ -234,8 +244,9 @@ export function createAiHandlers({ client, config, store, promos }) {
       }
       return;
     }
-    const mentioned = message.mentions.users.has(client.user.id) || roleMentioned;
-    const repliedToBot = message.mentions.repliedUser?.id === client.user.id;
+    // A real @ping in the text. Replying to one of the bot's messages also "mentions" it, so that's checked separately.
+    const mentioned = new RegExp(`<@!?${client.user.id}>`).test(message.content) || roleMentioned;
+    const repliedToBot = message.mentions.repliedUser?.id === client.user.id && (await repliedToChatReply(message));
 
     const support = store.supportByChannel(message.channelId);
     if (support) {
@@ -254,7 +265,9 @@ export function createAiHandlers({ client, config, store, promos }) {
 
     const order = store.orderByTicket(message.channelId);
     if (order) {
-      if (mentioned || repliedToBot) return chatReply(message, { withOrders: message.author.id === order.customerId });
+      // Orderers talk to the customer here, so only a direct @ping of the bot gets an answer from them.
+      const isStaff = hasRole(message.member, config.ordererRoleId) || Boolean(message.member?.permissions?.has('ManageGuild'));
+      if (mentioned || (repliedToBot && !isStaff)) return chatReply(message, { withOrders: message.author.id === order.customerId });
       return;
     }
 

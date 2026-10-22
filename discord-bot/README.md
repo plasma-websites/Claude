@@ -22,12 +22,33 @@ support tickets, a verify panel and moderation commands.
 7. **Accept order** (orderer role only, one person per order) creates a private ticket in the tickets category,
    named with a status emoji, the order number and the customer's username, e.g. `🔵-order-483920-plasma`. Its panel shows all the order info
    and the screenshot.
-8. In the ticket, **Complete order** renames it `🟢-order-483920` and it **auto-closes 2 hours later**
-   (`AUTO_CLOSE_HOURS`). **Close ticket** closes it immediately.
+8. In the ticket, **Complete order** renames it `🟢-order-483920` and it is **deleted automatically 2 hours later**
+   (`AUTO_DELETE_HOURS`), after a transcript is saved. **Close ticket** / **Close now** locks it immediately.
 9. Closing **locks** the ticket (`🔒-order-483920`): the customer loses access, staff keep it.
    **Delete ticket** (staff only) removes the channel; it's available on every ticket at any stage.
 
-The customer gets DMs along the way. Auto-close times are saved, so tickets still close on schedule if the bot restarts.
+The customer gets DMs along the way. Auto-delete times are saved, so tickets are still deleted on schedule if the bot
+restarts. A member can have up to `MAX_OPEN_ORDERS` (default 2) orders waiting or in progress at once; completed
+orders don't count.
+
+## Transcripts
+Every message in order and support tickets is saved as it's sent (in `data/transcripts`), so a transcript exists
+however the ticket ends, even if someone deletes the channel by hand. When the bot deletes a ticket itself (auto-delete
+or **Delete ticket**) it re-reads the whole channel first, which also picks up edited messages.
+
+Post the staff panel with `/transcriptpanel` in a staff channel. **🔎 Search by user ID** opens a box for a member's
+ID; the reply (only you see it) lists all of their orders and support tickets, with one `.txt` transcript per ticket
+that has the order details at the top. Orderers, the support role and admins can use it.
+
+Turn on **Message Content Intent** (Developer Portal → Bot) or transcripts only contain the bot's panels, not what
+members type. Links to attachments in transcripts are Discord links and can stop working after a while; order
+screenshots are also kept in `data/screenshots`. Tickets from before this feature only have their order details.
+
+## Giveaways
+`/giveaway [channel:]` (Manage Server) opens a form: **title**, **duration** (`30m`, `2h`, `1d`, `1w`, max 28d),
+**number of winners** (default 1) and **info**. The bot posts it with a **🎉 Enter** button showing the entry count;
+pressing it again leaves. When time's up it picks random winners, edits the post and pings them. Admins can press
+**🔁 Reroll** on an ended giveaway to draw again. Giveaways are saved, so they still end if the bot restarts.
 
 Ticket status emojis: 🔵 in progress · 🟢 completed · 🔒 closed. Discord limits channel renames to 2 per
 10 minutes, so a rename can show up a few minutes late if a ticket changes status quickly.
@@ -62,7 +83,8 @@ Set `ANTHROPIC_API_KEY` (from console.anthropic.com) and restart. There are two 
   fallback is on, so if Sonnet declines a question another model answers instead.
 - **Chat bot** (Claude Haiku 5.5): slangy, 😭-heavy Discord personality. In the channels listed in `CHAT_CHANNEL_IDS`
   it replies when someone @mentions it, replies to it, or says "food hub". In order tickets it replies when
-  @mentioned or replied to. A direct @ping (of the bot or its role) gets an answer in any channel.
+  @mentioned, or when the customer replies to one of its messages. It ignores replies to the bot's panels (order
+  details, payments…) and only answers orderers when they @ping it directly. A direct @ping (of the bot or its role) gets an answer in any channel.
 
 Spam protection: 6s cooldown per person, 3s per channel, 20 replies a minute and `AI_DAILY_LIMIT` (default 1000) a day.
 It can never ping roles, @everyone or @here, and pings at most one person per message.
@@ -116,6 +138,8 @@ verify panel with a button to your verify link.
 | `/vouchpanel` | Manage Server | Post / move the vouch panel to the bottom of the vouch channel |
 | `/tos [channel:]` | Manage Server | Post the order policy & server rules panel |
 | `/staffpanel [channel:]` | Manage Server | Post the orderer control panel |
+| `/transcriptpanel [channel:]` | Manage Server | Post the staff transcript search panel |
+| `/giveaway [channel:]` | Manage Server | Start a giveaway (opens a form) |
 | `/paypal` `/rev` `/starling` `/crypto` `amount:` | Orderer role | Post a payment-due panel with your saved details |
 | `/whyfoodhub [channel:]` | Manage Server | Post the Why Food Hub panel (2 buttons, text in `src/whyfoodhub.js`) |
 | `/announce [channel:] [ping:]` | Manage Server | Post an announcement panel |
