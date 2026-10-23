@@ -9,6 +9,7 @@ import { formatSlot, localNow, parseSchedule, slotsStartingNow } from '../src/sc
 import { discountedFee } from '../src/services.js';
 import { Store } from '../src/store.js';
 import * as views from '../src/views.js';
+import { card } from './helpers.js';
 
 const tempStore = () => new Store(path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'r3-')), 'store.json'));
 const ids = (rows) => rows.flatMap((r) => r.toJSON().components.map((c) => c.custom_id ?? c.url));
@@ -79,7 +80,7 @@ test('trial stats, keep open, staff cancel and online timeouts', () => {
   store.complete(a.id, new Date(Date.now() + 3600e3));
   const stats = store.trialStats();
   assert.deepEqual([stats.trial1.completed.length, stats.trial1.inProgress.length], [1, 1]);
-  assert.ok(views.trialPanel(stats, 'role').embeds[0].toJSON().description.includes(`#${a.id}`));
+  assert.ok(card(views.trialPanel(stats, 'role')).text.includes(`#${a.id}`));
 
   assert.equal(store.keepOpen(a.id).order.closeAt, null);
   assert.equal(store.dueForClose(Date.now() + 9e9).length, 0);
@@ -107,7 +108,7 @@ test('schedules parse common formats and fire at the slot start', () => {
 });
 
 test('new panels and forms serialize within Discord limits', () => {
-  assert.deepEqual(ids(views.referralPanel().components), ['ref:link', 'ref:stats', 'ref:codes']);
+  assert.deepEqual(card(views.referralPanel()).ids, ['ref:link', 'ref:stats', 'ref:codes']);
   const msg = views.codeMessage({ code: 'FH-ABC234', type: 'discount', amount: 0.5 }, 'hi');
   assert.equal(msg.content, 'FH-ABC234');
   assert.deepEqual(ids(msg.components), ['ref:copy:FH-ABC234']);
@@ -117,10 +118,10 @@ test('new panels and forms serialize within Discord limits', () => {
   const list = views.suggestionListEmbeds(Array.from({ length: 60 }, (_, i) => ({ number: i + 1, userId: '1', text: 'x'.repeat(200), createdAt: new Date().toISOString() })));
   assert.ok(list.length > 1 && list.every((e) => e.toJSON().description.length <= 4096));
   assert.ok(views.suggestionListEmbeds([])[0].toJSON().description.includes('No suggestions'));
-  assert.deepEqual(ids(views.suggestionSticky(3).components), ['suggest:add', 'suggest:clear']);
+  assert.deepEqual(card(views.suggestionSticky(3)).ids, ['suggest:add', 'suggest:clear']);
   views.suggestionModal().toJSON();
 
-  assert.deepEqual(ids(views.applyPanel().components), ['apply:orderer', 'apply:partner']);
+  assert.deepEqual(card(views.applyPanel()).ids, ['apply:orderer', 'apply:partner']);
   for (const form of Object.values(FORMS)) {
     form.steps.forEach((_, i) => views.applicationQuestion(form, i).components[0].toJSON());
     const app = { id: 1, type: 'orderer', userId: '1', answers: {}, status: 'pending', createdAt: new Date().toISOString() };
@@ -135,7 +136,7 @@ test('new panels and forms serialize within Discord limits', () => {
   views.scheduleModal('Mon 1-2').toJSON();
   assert.deepEqual(ids(views.schedulePrompt(new Date(Date.now() + 3600e3)).components).length, 2);
   views.staffStatusEmbed({ online: ['ubereats'], onlineUntil: new Date().toISOString(), payments: {}, schedule: { slots: parseSchedule('Mon 1-2').slots } }, 'Europe/London').toJSON();
-  views.transcriptPanel(false).embeds[0].toJSON();
+  assert.ok(card(views.transcriptPanel(false)).text.includes('Message Content Intent is off'));
 
   const names = commands.map((c) => c.toJSON().name);
   for (const n of ['trialpanel', 'referralpanel', 'suggestionpanel', 'applypanel', 'complete', 'close', 'delete', 'rename', 'wise', 'giveaway']) assert.ok(names.includes(n), n);

@@ -7,6 +7,7 @@ import { pickWinners } from '../src/giveaways.js';
 import { Store } from '../src/store.js';
 import { createTranscripts, messageEntry, renderOrderTranscript } from '../src/transcripts.js';
 import * as views from '../src/views.js';
+import { card } from './helpers.js';
 
 const tempDir = () => fs.mkdtempSync(path.join(os.tmpdir(), 'bot-'));
 const ids = (rows) => rows.flatMap((r) => r.toJSON().components.map((c) => c.custom_id));
@@ -31,13 +32,13 @@ test('giveaway entries toggle, and winners are drawn once each', () => {
 
 test('giveaway post shows an Enter button, then Reroll once ended', () => {
   const g = { id: 1, title: 'T', info: 'Win stuff', winners: 1, endsAt: new Date().toISOString(), hostId: 'h', entrants: ['a'], winnerIds: [], status: 'running' };
-  assert.deepEqual(ids(views.giveawayButtons(g)), ['giveaway:enter:1']);
-  assert.equal(views.giveawayEmbed(g).toJSON().fields.find((f) => f.name.includes('Entries')).value, '1');
+  assert.deepEqual(card(views.giveawayView(g)).ids, ['giveaway:enter:1']);
+  assert.ok(card(views.giveawayView(g)).text.includes('**Entries:** 1'));
   const ended = { ...g, status: 'ended', winnerIds: ['a'] };
-  assert.deepEqual(ids(views.giveawayButtons(ended)), ['giveaway:enter:1', 'giveaway:reroll:1']);
-  assert.equal(views.giveawayEmbed(ended).toJSON().fields.find((f) => f.name.includes('Winners')).value, '<@a>');
+  assert.deepEqual(card(views.giveawayView(ended)).ids, ['giveaway:enter:1', 'giveaway:reroll:1']);
+  assert.ok(card(views.giveawayView(ended)).text.includes('**Winners:** <@a>'));
   assert.equal(views.giveawayModal('chan').toJSON().custom_id, 'giveaway:create:chan');
-  assert.deepEqual(ids(views.transcriptPanel().components), ['transcript:open']);
+  assert.deepEqual(card(views.transcriptPanel()).ids, ['transcript:open']);
 });
 
 const fakeMessage = (id, channelId, content, extra = {}) => ({

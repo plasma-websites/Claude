@@ -12,11 +12,7 @@ export function createStats({ client, config, store }) {
 
   async function postDaily(date) {
     const channel = await client.channels.fetch(config.statsChannelId);
-    await channel.send({
-      content: `<@&${config.ordererRoleId}>`,
-      allowedMentions: { roles: [config.ordererRoleId] },
-      ...dailyStatsView(statsFor(date)),
-    });
+    await channel.send({ ...dailyStatsView(statsFor(date), { ping: `<@&${config.ordererRoleId}>` }), allowedMentions: { roles: [config.ordererRoleId] } });
   }
 
   // Runs every 30 seconds; posts yesterday's stats once, just after midnight.
@@ -31,7 +27,8 @@ export function createStats({ client, config, store }) {
 
   function today(interaction) {
     if (!isStaff(interaction)) return interaction.reply(ephemeral('Only staff can see stats.', {}, { color: COLORS.danger }));
-    return interaction.reply({ ...dailyStatsView(statsFor(localNow(config.timezone).date), { title: 'Today so far' }), flags: MessageFlags.Ephemeral });
+    const view = dailyStatsView(statsFor(localNow(config.timezone).date), { title: 'Today so far' });
+    return interaction.reply({ ...view, flags: view.flags | MessageFlags.Ephemeral });
   }
 
   function handleComponent(interaction) {

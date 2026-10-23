@@ -2,7 +2,7 @@ import { randomInt } from 'node:crypto';
 import { MessageFlags } from 'discord.js';
 import { parseDuration } from './moderation.js';
 import { COLORS, editMessage, ephemeral, isAdmin, say } from './util.js';
-import { giveawayButtons, giveawayEmbed, giveawayModal } from './views.js';
+import { giveawayModal, giveawayView } from './views.js';
 
 const MAX_WINNERS = 20;
 
@@ -17,7 +17,7 @@ export function pickWinners(list, count) {
 // /giveaway opens a form (title, duration, winners, info) and posts the
 // giveaway with a 🎉 Enter button. When time's up the bot draws the winners.
 export function createGiveawayHandlers({ client, store }) {
-  const view = (g) => ({ embeds: [giveawayEmbed(g)], components: giveawayButtons(g) });
+  const view = giveawayView;
 
   function start(interaction) {
     const channel = interaction.options.getChannel('channel') ?? interaction.channel;

@@ -8,6 +8,7 @@ import { loadPromos } from '../src/config.js';
 import { parseDuration } from '../src/moderation.js';
 import { SERVICES } from '../src/services.js';
 import * as views from '../src/views.js';
+import { card } from './helpers.js';
 
 const promos = loadPromos();
 const order = {
@@ -17,19 +18,17 @@ const order = {
 const ids = (rows) => rows.flatMap((r) => r.toJSON().components.map((c) => c.custom_id ?? c.url));
 
 test('order panel lists every company with its promos', () => {
-  const { embeds, components } = views.ordersPanel(promos, { ubereats: ['111'] });
-  const json = embeds[0].toJSON();
-  const fields = Object.fromEntries(json.fields.map((f) => [f.name, f.value]));
-  for (const s of Object.values(SERVICES)) assert.ok(json.fields.some((f) => f.name.includes(s.label)), s.label);
-  assert.ok(fields['🛵  Deliveroo'].includes('`15f20`') && fields['🍔  Uber Eats'].includes('`12 off`'));
-  assert.ok(fields['🍔  Uber Eats'].includes('<@111>') && fields['🚗  Uber Rides'].includes('Nobody online'));
-  assert.ok(!JSON.stringify(json).includes('━'), 'no divider lines');
-  assert.deepEqual(ids([components[1]]), ['order:myorders', 'order:addresses']);
-  const menu = components[0].toJSON().components[0];
+  const panel = card(views.ordersPanel(promos, { ubereats: ['111'] }));
+  const line = (label) => panel.text.split('\n\n').find((l) => l.includes(label));
+  for (const s of Object.values(SERVICES)) assert.ok(line(s.label), s.label);
+  assert.ok(line('Deliveroo').includes('`15f20`') && line('Uber Eats').includes('`12 off`'));
+  assert.ok(line('Uber Eats').includes('<@111>') && line('Uber Rides').includes('Nobody online'));
+  assert.ok(!panel.text.includes('━'), 'no divider lines');
+  assert.deepEqual(panel.ids, ['order:service', 'order:myorders', 'order:addresses']);
+  const menu = panel.menus[0];
   assert.equal(menu.custom_id, 'order:service');
   assert.deepEqual(menu.options.map((o) => o.value), ['uberride', 'ubereats', 'deliveroo', 'justeat', 'ubertrain']);
-  assert.ok(fields['🚆  Uber Trains'].includes('£1.00–£2.50'), 'per-promo fees for trains');
-  assert.ok(JSON.stringify(json).length <= 6000);
+  assert.ok(line('Uber Trains').includes('£1.00–£2.50'), 'per-promo fees for trains');
 });
 
 test('order flow components', () => {
@@ -83,8 +82,8 @@ test('support, verify views and commands serialize', () => {
   views.supportEmbed(ticket).toJSON();
   assert.deepEqual(ids(views.supportButtons(ticket)), ['support:close']);
   assert.deepEqual(ids(views.supportButtons({ ...ticket, status: 'closed' })), []);
-  assert.deepEqual(ids(views.verifyPanel('https://restorecord.com/verify/x').components), ['https://restorecord.com/verify/x']);
-  views.supportPanel().components[0].toJSON();
+  assert.deepEqual(card(views.verifyPanel('https://vaultcord.com/verify/x')).ids, ['https://vaultcord.com/verify/x']);
+  assert.deepEqual(card(views.supportPanel()).ids, ['support:open']);
   const names = commands.map((c) => c.toJSON().name);
   for (const n of ['orderpanel', 'supportpanel', 'verifypanel']) assert.ok(names.includes(n), n);
 });
@@ -120,20 +119,17 @@ const embedSize = (e) => {
 
 test('tos panel contains every section and fits Discord limits', async () => {
   const { TOS } = await import('../src/tos.js');
-  const embed = views.tosPanel(TOS).embeds[0];
-  const json = embed.toJSON();
-  assert.equal(json.title, '📜 FOOD HUB | ORDER POLICY & SERVER RULES');
-  assert.equal(json.fields.length, 10);
-  assert.ok(json.fields.every((f) => f.value.length <= 1024 && f.name.length <= 256));
-  assert.ok(embedSize(embed) <= 6000, `embed is ${embedSize(embed)} chars`);
+  const { text } = card(views.tosPanel(TOS));
+  assert.ok(text.startsWith('## 📜 FOOD HUB | ORDER POLICY & SERVER RULES'));
+  for (const s of TOS.sections) assert.ok(text.includes(`### ${s.name}\n${s.value}`), s.name);
+  assert.ok(text.length <= 4000, `${text.length} chars`);
 });
 
 test('completed, vouch and announcement views', () => {
   const done = { ...order, status: 'completed', ordererId: '2' };
   const text = JSON.stringify(views.completedEmbed(done).toJSON());
   assert.ok(text.includes('Order completed') && text.includes('<@1>') && text.includes('<@2>') && text.includes('Deliveroo'));
-  const sticky = views.vouchSticky();
-  assert.equal(sticky.components[0].toJSON().components[0].custom_id, 'vouch:start');
+  assert.deepEqual(card(views.vouchSticky()).ids, ['vouch:start']);
   assert.equal(views.starPicker(483920).toJSON().options.length, 5);
   assert.equal(views.vouchModal(483920, '5').toJSON().custom_id, 'vouch:submit:483920:5');
   const vouch = views.vouchEmbed({ number: 3, stars: 4, userId: '1', message: 'fast\nnice', createdAt: new Date().toISOString() }, done).toJSON();
@@ -145,7 +141,7 @@ test('completed, vouch and announcement views', () => {
 
 test('why food hub panel and embeds', async () => {
   const { WHY_FOOD_HUB, WHY_OVER_FOODPLUG } = await import('../src/whyfoodhub.js');
-  assert.deepEqual(ids(views.whyPanel().components), ['why:hub', 'why:foodplug']);
+  assert.deepEqual(card(views.whyPanel()).ids, ['why:hub', 'why:foodplug']);
   const hub = views.whyFoodHubEmbed(WHY_FOOD_HUB).toJSON();
   assert.equal(hub.title, '🍔 WHY CHOOSE FOOD HUB?');
   assert.ok(hub.description.includes('Community First') && hub.description.includes('SMARTER SAVINGS'));
@@ -157,11 +153,11 @@ test('why food hub panel and embeds', async () => {
 test('order panel shows fees and who is online', async () => {
   const { money } = await import('../src/services.js');
   assert.equal(money(1.5), '£1.50');
-  const text = JSON.stringify(views.ordersPanel(promos, { ubereats: ['111', '222', '333', '444'] }).embeds[0].toJSON());
+  const { text } = card(views.ordersPanel(promos, { ubereats: ['111', '222', '333', '444'] }));
   assert.ok(text.includes('£1.50') && text.includes('£2.50') && text.includes('£2.00'));
   assert.ok(text.includes('🟢 <@111> <@222> <@333> +1'), 'first three online, then a count');
   assert.ok(text.includes('Nobody online'));
-  const options = views.ordersPanel(promos, { ubereats: ['111'] }).components[0].toJSON().components[0].options;
+  const { options } = card(views.ordersPanel(promos, { ubereats: ['111'] })).menus[0];
   assert.ok(options.find((o) => o.value === 'ubereats').description.startsWith('£2.50 fee · 1 online'));
   assert.ok(options.every((o) => o.description.length <= 100));
   const picker = JSON.stringify(views.promoPicker('justeat', promos.justeat, []).embeds[0].toJSON());
@@ -170,9 +166,7 @@ test('order panel shows fees and who is online', async () => {
 
 test('staff panel, payment details and payment panel', async () => {
   const { PAYMENT_METHODS } = await import('../src/services.js');
-  const panelJson = views.staffPanel();
-  assert.equal(panelJson.components[0].toJSON().components[0].custom_id, 'staff:online');
-  assert.deepEqual(ids([panelJson.components[1]]), ['staff:offline', 'staff:schedule', 'staff:payments', 'staff:me']);
+  assert.deepEqual(card(views.staffPanel()).ids, ['staff:online', 'staff:offline', 'staff:schedule', 'staff:payments', 'staff:me']);
   const modal = views.paymentDetailsModal({ paypal: 'https://paypal.me/x' }).toJSON();
   assert.equal(modal.components.length, 5);
   assert.ok(PAYMENT_METHODS.wise.pattern.test('https://wise.com/pay/me/sam'));

@@ -2,11 +2,18 @@ import {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
+  ContainerBuilder,
   EmbedBuilder,
+  MessageFlags,
   ModalBuilder,
+  SectionBuilder,
+  SeparatorBuilder,
+  SeparatorSpacingSize,
   StringSelectMenuBuilder,
+  TextDisplayBuilder,
   TextInputBuilder,
   TextInputStyle,
+  ThumbnailBuilder,
 } from 'discord.js';
 import { PAYMENT_METHODS, SERVICES, STATUS, SUPPORT_STATUS, feeSummary, money, orderFee } from './services.js';
 import { formatSlot } from './schedule.js';
@@ -27,6 +34,23 @@ export function setBrand(name, iconURL) {
   Object.assign(brand, { name: name || BRAND, iconURL: iconURL || undefined });
 }
 const panelEmbed = () => embed().setAuthor({ name: brand.name, iconURL: brand.iconURL });
+
+// Standalone panels use Discord's newer layout (Components V2): one card with the
+// accent colour, a heading with the server icon beside it, sections split by thin
+// native dividers, and the buttons inside the card.
+const text = (content) => new TextDisplayBuilder().setContent(content);
+const divider = () => new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small);
+function v2Panel({ title, intro, sections = [], note, rows = [], icon = true }) {
+  const card = new ContainerBuilder().setAccentColor(THEME);
+  const head = text(`## ${title}${intro ? `\n${intro}` : ''}`);
+  if (icon && brand.iconURL) card.addSectionComponents(new SectionBuilder().addTextDisplayComponents(head).setThumbnailAccessory(new ThumbnailBuilder().setURL(brand.iconURL)));
+  else card.addTextDisplayComponents(head);
+  for (const s of sections) card.addSeparatorComponents(divider()).addTextDisplayComponents(text(s.heading ? `### ${s.heading}\n${s.body}` : s.body));
+  if (rows.length) card.addSeparatorComponents(divider());
+  if (note) card.addTextDisplayComponents(text(`-# ${note}`));
+  if (rows.length) card.addActionRowComponents(...rows);
+  return { components: [card], flags: MessageFlags.IsComponentsV2 };
+}
 
 const row = (...components) => new ActionRowBuilder().addComponents(...components);
 const button = (id, label, style, emoji) => {
@@ -57,30 +81,9 @@ const onlineText = (ids = []) => {
 
 // `online` is { serviceKey: [userId, …] } from the staff panel.
 export function ordersPanel(promos, online = {}) {
-  const services = Object.entries(SERVICES).map(([key, s]) =>
-    field(`${s.emoji}  ${s.label}`, [promos[key].map((p) => `\`${p.name}\``).join(' '), `💷 ${feeSummary(promos[key])}`, onlineText(online[key])].join('\n'), true),
-  );
-  const e = panelEmbed()
-    .setTitle('🍽️  Place an Order')
-    .setDescription('**Food or a ride, sorted.** Pick a company from the menu below and an orderer will take it from there.')
-    .addFields(
-      ...services,
-      field('🎁  Rewards', 'Loyalty, referral and award codes go in the order form', true),
-      field(
-        '📋  How it works',
-        steps([
-          'Choose a **company** from the menu',
-          'Pick your **promo**',
-          'Answer **VC?** with yes or no',
-          'Enter your **address** (or pick a saved one) and any code',
-          'Send your **order screenshot** in DMs',
-          'An orderer accepts it and opens your **private ticket**',
-        ]),
-      ),
-      field('⚠️  Before you start', bullets(['Keep your **DMs open** so the bot can ask for your screenshot', 'Check your orders any time with **My orders**'])),
-    )
-    .setFooter(footer('Your details are only shared with staff in your ticket  •  Online list updates live'))
-    .setTimestamp();
+  const services = Object.entries(SERVICES)
+    .map(([key, s]) => `**${s.emoji}  ${s.label}**  ·  ${promos[key].map((p) => `\`${p.name}\``).join(' ')}  ·  💷 ${feeSummary(promos[key])}\n${onlineText(online[key])}`)
+    .join('\n\n');
   const select = new StringSelectMenuBuilder()
     .setCustomId('order:service')
     .setPlaceholder('🛒  Choose a company to start…')
@@ -92,13 +95,26 @@ export function ordersPanel(promos, online = {}) {
         description: `${feeSummary(promos[value])} fee · ${online[value]?.length ? `${online[value].length} online` : 'nobody online'} · ${promos[value].map((p) => p.name).join(', ')}`.slice(0, 100),
       })),
     );
-  return {
-    embeds: [e],
-    components: [
-      row(select),
-      row(button('order:myorders', 'My orders', ButtonStyle.Secondary, '📦'), button('order:addresses', 'My addresses', ButtonStyle.Secondary, '📍')),
+  return v2Panel({
+    title: '🍽️  Place an Order',
+    intro: 'Food or a ride, sorted. Pick a company below and an orderer will take it from there.',
+    sections: [
+      { heading: '🏷️  Promos, fees & who\'s online', body: services },
+      {
+        heading: '📋  How it works',
+        body: steps([
+          'Choose a **company** from the menu',
+          'Pick your **promo**',
+          'Answer **VC?** with yes or no',
+          'Enter your **address** (or pick a saved one) and any code',
+          'Send your **order screenshot** in DMs',
+          'An orderer accepts it and opens your **private ticket**',
+        ]),
+      },
     ],
-  };
+    note: 'Keep your DMs open  •  Your details are only shared with staff in your ticket  •  Online list updates live',
+    rows: [row(select), row(button('order:myorders', 'My orders', ButtonStyle.Secondary, '📦'), button('order:addresses', 'My addresses', ButtonStyle.Secondary, '📍'))],
+  });
 }
 
 export function promoPicker(serviceKey, promos, onlineIds = []) {
@@ -321,15 +337,16 @@ export function ticketWelcome(order) {
 // --- support tickets ---
 
 export function supportPanel() {
-  const e = panelEmbed()
-    .setTitle('🛟  Support')
-    .setDescription('**Need a hand?** Open a ticket and our team will get back to you as soon as they can.')
-    .addFields(
-      field('💬  We can help with', bullets(['Questions about an order', 'Problems with a delivery or ride', 'Anything else you\'re stuck on']), true),
-      field('🎫  How it works', steps(['Press **Open a ticket**', 'Tell us what\'s up', 'Chat with staff privately']), true),
-    )
-    .setFooter(footer('One ticket per issue, please'));
-  return { embeds: [e], components: [row(button('support:open', 'Open a ticket', ButtonStyle.Primary, '🎫'))] };
+  return v2Panel({
+    title: '🛟  Support',
+    intro: 'Need a hand? Open a ticket and our team will get back to you as soon as they can.',
+    sections: [
+      { heading: '💬  We can help with', body: bullets(['Questions about an order', 'Problems with a delivery or ride', 'Anything else you\'re stuck on']) },
+      { heading: '🎫  How it works', body: steps(['Press **Open a ticket**', 'Tell us what\'s up', 'Chat with staff in your private channel']) },
+    ],
+    note: 'One ticket per issue, please',
+    rows: [row(button('support:open', 'Open a ticket', ButtonStyle.Primary, '🎫'))],
+  });
 }
 
 export function supportModal() {
@@ -367,15 +384,13 @@ export function supportEmbed(ticket) {
 // --- verification (RestoreCord / VaultCord) ---
 
 export function verifyPanel(url) {
-  const e = panelEmbed()
-    .setTitle('✅  Verify')
-    .setDescription('**Welcome!** Verify below to unlock the rest of the server.')
-    .addFields(
-      field('🔐  How to verify', steps(['Press **Verify**', 'Log in with Discord and press **Authorize**', 'Your role and channels unlock straight away'])),
-      field('🛡️  Why?', 'Verifying keeps you in the community even if the server ever has to move.'),
-    )
-    .setFooter(footer('Takes about 10 seconds'));
-  return { embeds: [e], components: [row(linkButton(url, 'Verify', '✅'))] };
+  return v2Panel({
+    title: 'Verification Required',
+    intro: 'Verify your account to unlock the rest of the server. It takes about 10 seconds.',
+    sections: [{ body: steps(['Press **Verify**', 'Log in with Discord and press **Authorize**', 'Your role and channels unlock straight away']) }],
+    note: 'Verifying keeps you in the community even if the server ever has to move.',
+    rows: [row(linkButton(url, 'Verify', '✅'))],
+  });
 }
 
 // --- completed orders feed ---
@@ -399,15 +414,15 @@ export function completedEmbed(order) {
 const stars = (n) => '⭐'.repeat(n) + '☆'.repeat(5 - n);
 
 export function vouchSticky() {
-  const e = panelEmbed()
-    .setTitle('⭐  Leave a vouch')
-    .setDescription('**Had a great order?** Let everyone know. Every vouch here comes from a real, completed order.')
-    .addFields(
-      field('✍️  A great vouch mentions', bullets(['What you ordered', 'How quick and smooth it was', 'Who helped you']), true),
-      field('📏  Rules', bullets(['Completed orders only', 'One vouch per order', 'Other messages are removed']), true),
-    )
-    .setFooter(footer('Press Leave a vouch to start'));
-  return { embeds: [e], components: [row(button('vouch:start', 'Leave a vouch', ButtonStyle.Success, '⭐'))] };
+  return v2Panel({
+    title: '⭐  Leave a vouch',
+    intro: 'Had a great order? Let everyone know. Every vouch here comes from a real, completed order.',
+    sections: [
+      { heading: '✍️  A great vouch mentions', body: bullets(['What you ordered', 'How quick and smooth it was', 'Who helped you']) },
+      { heading: '📏  Rules', body: bullets(['Completed orders only', 'One vouch per order', 'Other messages are removed']) },
+    ],
+    rows: [row(button('vouch:start', 'Leave a vouch', ButtonStyle.Success, '⭐'))],
+  });
 }
 
 export function starPicker(orderId) {
@@ -477,32 +492,23 @@ export function announcementEmbed({ title, message, image, author }) {
 }
 
 export function tosPanel(tos) {
-  const e = panelEmbed()
-    .setTitle(tos.title)
-    .setDescription('**Please read these carefully before placing an order.**')
-    .addFields(tos.sections)
-    .setFooter(footer(tos.footer))
-    .setTimestamp();
-  return { embeds: [e] };
+  return v2Panel({
+    title: tos.title,
+    intro: 'Please read these carefully before placing an order.',
+    sections: tos.sections.map((s) => ({ heading: s.name, body: s.value })),
+    note: tos.footer,
+  });
 }
 
 // --- why Food Hub ---
 
 export function whyPanel() {
-  const e = panelEmbed()
-    .setTitle('🍔  Why Food Hub?')
-    .setDescription('**Thinking about ordering with us?** Here\'s what we\'re about.')
-    .addFields(
-      field('🍔  Why Food Hub?', 'What you can expect from us', true),
-      field('🆚  Why us over Foodplug?', 'What makes us different', true),
-    )
-    .setFooter(footer('Tap a button to read more'));
-  return {
-    embeds: [e],
-    components: [
-      row(button('why:hub', 'Why Food Hub?', ButtonStyle.Primary, '🍔'), button('why:foodplug', 'Why us over Foodplug?', ButtonStyle.Secondary, '🆚')),
-    ],
-  };
+  return v2Panel({
+    title: '🍔  Why Food Hub?',
+    intro: 'Thinking about ordering with us? Here\'s what we\'re about.',
+    sections: [{ body: '🍔  **Why Food Hub?** What you can expect from us\n🆚  **Why us over Foodplug?** What makes us different' }],
+    rows: [row(button('why:hub', 'Why Food Hub?', ButtonStyle.Primary, '🍔'), button('why:foodplug', 'Why us over Foodplug?', ButtonStyle.Secondary, '🆚'))],
+  });
 }
 
 export function whyFoodHubEmbed(why) {
@@ -519,25 +525,23 @@ export function whyOverFoodplugEmbed(why) {
 // --- staff panel (availability & payment details) ---
 
 export function staffPanel() {
-  const e = panelEmbed()
-    .setTitle('🧑‍🍳  Orderer Control Panel')
-    .setDescription('**Everything you need as an orderer, in one place.**')
-    .addFields(
-      field('🟢  Going online', 'Pick your services, then **how long** you\'re on for. New orders ping you, and you\'re set offline when the time\'s up.'),
-      field('🗓️  Schedule', 'Save your usual times with **My schedule** and I\'ll DM you then to go online in one tap.'),
-      field('💳  Getting paid', `Save your details with **Payment details**, then in a ticket use\n${Object.values(PAYMENT_METHODS).map((m) => `\`/${m.command}\``).join('  ')}`),
-      field('🎫  In tickets', '`/complete`  `/close`  `/delete`  `/rename`\n**Forfeit** puts an order back in the queue.'),
-    )
-    .setFooter(footer('Staff only'));
   const select = new StringSelectMenuBuilder()
     .setCustomId('staff:online')
     .setPlaceholder('🟢  Go online for…')
     .setMinValues(1)
     .setMaxValues(Object.keys(SERVICES).length)
     .addOptions(Object.entries(SERVICES).map(([value, s]) => ({ label: s.label, value, emoji: s.emoji })));
-  return {
-    embeds: [e],
-    components: [
+  return v2Panel({
+    title: '🧑‍🍳  Orderer Control Panel',
+    intro: 'Everything you need as an orderer, in one place.',
+    sections: [
+      { heading: '🟢  Going online', body: 'Pick your services, then **how long** you\'re on for. New orders ping you, and you\'re set offline when the time\'s up.' },
+      { heading: '🗓️  Schedule', body: 'Save your usual times with **My schedule** and I\'ll DM you then to go online in one tap.' },
+      { heading: '💳  Getting paid', body: `Save your details with **Payment details**, then in a ticket use\n${Object.values(PAYMENT_METHODS).map((m) => `\`/${m.command}\``).join('  ')}` },
+      { heading: '🎫  In tickets', body: '`/complete`  `/close`  `/delete`  `/rename`\n**Forfeit** puts an order back in the queue.' },
+    ],
+    note: 'Staff only',
+    rows: [
       row(select),
       row(
         button('staff:offline', 'Go offline', ButtonStyle.Danger, '🔴'),
@@ -546,7 +550,7 @@ export function staffPanel() {
         button('staff:me', 'My status', ButtonStyle.Secondary, '👀'),
       ),
     ],
-  };
+  });
 }
 
 const ONLINE_DURATIONS = [
@@ -749,15 +753,17 @@ export function answerEmbed(order, q) {
 // --- transcripts ---
 
 export function transcriptPanel(messageContent = true) {
-  const e = panelEmbed()
-    .setTitle('📜  Ticket Transcripts')
-    .setDescription('**Every order and support ticket is saved before it\'s deleted.**')
-    .addFields(field('🔎  Search', 'Press **Search by user ID** and paste a member\'s ID to get every order they\'ve made, with a transcript of each ticket.'))
-    .setFooter(footer('Staff only'));
+  const sections = [{ body: 'Press **Search by user ID** and paste a member\'s ID to get every order they\'ve made, with a transcript of each ticket.' }];
   if (!messageContent) {
-    e.addFields(field('⚠️  Message Content Intent is off', 'Members\' messages aren\'t being saved, only the bot\'s panels. Turn it on in the Developer Portal → Bot, then restart.'));
+    sections.push({ heading: '⚠️  Message Content Intent is off', body: 'Members\' messages aren\'t being saved, only the bot\'s panels. Turn it on in the Developer Portal → Bot, then restart.' });
   }
-  return { embeds: [e], components: [row(button('transcript:open', 'Search by user ID', ButtonStyle.Primary, '🔎'))] };
+  return v2Panel({
+    title: '📜  Ticket Transcripts',
+    intro: 'Every order and support ticket is saved before it\'s deleted.',
+    sections,
+    note: 'Staff only',
+    rows: [row(button('transcript:open', 'Search by user ID', ButtonStyle.Primary, '🔎'))],
+  });
 }
 
 export function transcriptSearchModal() {
@@ -807,26 +813,31 @@ export function giveawayModal(channelId) {
     );
 }
 
-export function giveawayEmbed(g) {
+// The whole giveaway post: details, entry count and the Enter / Reroll buttons.
+export function giveawayView(g) {
   const ended = g.status !== 'running';
   const winners = ended ? (g.winnerIds.length ? g.winnerIds.map((id) => `<@${id}>`).join(', ') : 'No entries') : String(g.winners);
-  return panelEmbed()
-    .setTitle(`🎉  ${g.title}`)
-    .setDescription(g.info || (ended ? 'This giveaway has ended.' : '**Press Enter to join!** Press it again to leave.'))
-    .addFields(
-      field(ended ? '⏰  Ended' : '⏰  Ends', ended ? timestamp(g.endsAt) : `${timestamp(g.endsAt)}\n${timestamp(g.endsAt, 'f')}`, true),
-      field('🏆  Winners', winners, true),
-      field('🎟️  Entries', String(g.entrants.length), true),
-      field('🎁  Hosted by', `<@${g.hostId}>`, true),
-    )
-    .setFooter(footer(ended ? `Giveaway #${g.id}  •  Ended` : `Giveaway #${g.id}  •  Press Enter to join`))
-    .setTimestamp(new Date(g.endsAt));
+  const rows = ended
+    ? [row(button(`giveaway:enter:${g.id}`, 'Ended', ButtonStyle.Secondary, '🎉').setDisabled(true), button(`giveaway:reroll:${g.id}`, 'Reroll', ButtonStyle.Secondary, '🔁'))]
+    : [row(button(`giveaway:enter:${g.id}`, `Enter  (${g.entrants.length})`, ButtonStyle.Success, '🎉'))];
+  return v2Panel({
+    title: `🎉  ${g.title}`,
+    intro: g.info || (ended ? 'This giveaway has ended.' : 'Press **Enter** to join! Press it again to leave.'),
+    sections: [
+      {
+        body: [
+          `⏰  **${ended ? 'Ended' : 'Ends'}** ${timestamp(g.endsAt)}${ended ? '' : ` (${timestamp(g.endsAt, 'f')})`}`,
+          `🏆  **Winners:** ${winners}`,
+          `🎟️  **Entries:** ${g.entrants.length}`,
+          `🎁  **Hosted by** <@${g.hostId}>`,
+        ].join('\n'),
+      },
+    ],
+    note: `Giveaway #${g.id}`,
+    rows,
+  });
 }
 
-export function giveawayButtons(g) {
-  if (g.status === 'running') return [row(button(`giveaway:enter:${g.id}`, 'Enter', ButtonStyle.Success, '🎉'))];
-  return [row(button(`giveaway:enter:${g.id}`, 'Ended', ButtonStyle.Secondary, '🎉').setDisabled(true), button(`giveaway:reroll:${g.id}`, 'Reroll', ButtonStyle.Secondary, '🔁'))];
-}
 
 // --- trial orderers ---
 
@@ -841,56 +852,48 @@ export function trialPanel(stats, roleId) {
   });
   let body = '';
   for (const [i, line] of lines.entries()) {
-    if (body.length + line.length > 3300) {
+    if (body.length + line.length > 3000) {
       body += `\n\n*…and ${lines.length - i} more*`;
       break;
     }
     body += `${body ? '\n\n' : ''}${line}`;
   }
-  return {
-    embeds: [
-      panelEmbed()
-        .setTitle('🎓  Trial Orderers')
-        .setDescription(
-          [`Trial orderers${roleId ? ` (<@&${roleId}>)` : ''} can accept orders. When they do, the orderer role is pinged to supervise.`, '', body || '*No trial orders yet.*'].join('\n'),
-        )
-        .setFooter(footer('Successful orders  •  Updates live'))
-        .setTimestamp(),
-    ],
-  };
+  return v2Panel({
+    title: '🎓  Trial Orderers',
+    intro: `Trial orderers${roleId ? ` (<@&${roleId}>)` : ''} can accept orders. When they do, the orderer role is pinged to supervise.`,
+    sections: [{ heading: '✅  Successful orders', body: body || '*No trial orders yet.*' }],
+    note: 'Updates live',
+  });
 }
 
 // --- referrals ---
 
 export function referralPanel() {
-  return {
-    embeds: [
-      panelEmbed()
-        .setTitle('🎉  Foodhub Referrals — Win-Win!')
-        .setDescription('Get **3 friends** to order with us and you score a **FREE FEE ORDER**!')
-        .addFields(
-          field('🤝  You both win', 'Your friends get **50p off their second order**, and your free-fee code is DMed to you automatically.'),
-          field(
-            '📋  How it works',
-            steps([
-              'Press **Get my invite link** and share it',
-              'Friends join Food Hub with **your link**',
-              'After a friend\'s **first order**, they\'re DMed a **50p-off code** for their second',
-              'Once **3** of your friends have ordered, your **free-fee code** is DMed to you',
-            ]),
-          ),
-          field('🚀  Important', 'They *must* join with **your personal invite link** so it counts.'),
-        )
-        .setFooter(footer('Codes are personal and single-use  •  A cancelled order gives the code back')),
+  return v2Panel({
+    title: '🎉  Foodhub Referrals — Win-Win!',
+    intro: 'Get **3 friends** to order with us and you score a **FREE FEE ORDER**!',
+    sections: [
+      { heading: '🤝  You both win', body: 'Your friends get **50p off their second order**, and your free-fee code is DMed to you automatically.' },
+      {
+        heading: '📋  How it works',
+        body: steps([
+          'Press **Get my invite link** and share it',
+          'Friends join Food Hub with **your link**',
+          'After a friend\'s **first order**, they\'re DMed a **50p-off code** for their second',
+          'Once **3** of your friends have ordered, your **free-fee code** is DMed to you',
+        ]),
+      },
+      { heading: '🚀  Important', body: 'They *must* join with **your personal invite link** so it counts.' },
     ],
-    components: [
+    note: 'Codes are personal and single-use  •  A cancelled order gives the code back',
+    rows: [
       row(
         button('ref:link', 'Get my invite link', ButtonStyle.Primary, '🔗'),
         button('ref:stats', 'My referrals', ButtonStyle.Secondary, '📊'),
         button('ref:codes', 'My codes', ButtonStyle.Secondary, '📋'),
       ),
     ],
-  };
+  });
 }
 
 // A discount code: the bare code as the message text (easy to copy), the details in the embed.
@@ -930,19 +933,15 @@ export function referralStatsEmbed(stats, { reward = null, tracking = true, rule
 
 export function loyaltyPanel({ orders, days }) {
   const weeks = days % 7 === 0 ? `${days / 7} weeks` : `${days} days`;
-  return {
-    embeds: [
-      panelEmbed()
-        .setTitle('🍔  Food Hub Loyalty')
-        .setDescription(`**Order ${orders} times in ${weeks} and your next order's fee is on us.**`)
-        .addFields(
-          field('📋  How it works', steps([`Complete **${orders} orders** within **${weeks}**`, 'Your free-fee code is **DMed to you** automatically', 'Put it in the order form on your next order'])),
-          field('📈  Your progress', 'Press **Check loyalty** to see how close you are.'),
-        )
-        .setFooter(footer(`Only completed orders count  •  Rolling ${weeks}`)),
+  return v2Panel({
+    title: '🍔  Food Hub Loyalty',
+    intro: `Order **${orders} times in ${weeks}** and your next order's fee is on us.`,
+    sections: [
+      { heading: '📋  How it works', body: steps([`Complete **${orders} orders** within **${weeks}**`, 'Your free-fee code is **DMed to you** automatically', 'Put it in the order form on your next order']) },
     ],
-    components: [row(button('loyalty:check', 'Check loyalty', ButtonStyle.Success, '🍔'))],
-  };
+    note: `Only completed orders count  •  Rolling ${weeks}`,
+    rows: [row(button('loyalty:check', 'Check loyalty', ButtonStyle.Success, '🍔'))],
+  });
 }
 
 export function loyaltyProgressEmbed(counted, { orders, days }) {
@@ -966,29 +965,29 @@ export function loyaltyProgressEmbed(counted, { orders, days }) {
 const minutes = (m) => (m === null || m === undefined ? '—' : m < 60 ? `${Math.round(m)} min` : `${Math.floor(m / 60)}h ${Math.round(m % 60)}m`);
 const dayLabel = (date) => new Date(`${date}T12:00:00Z`).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' });
 
-export function dailyStatsView(stats, { title = 'Daily stats' } = {}) {
+export function dailyStatsView(stats, { title = 'Daily stats', ping = null } = {}) {
   const board = Object.entries(stats.byOrderer)
     .sort(([, a], [, b]) => b.completed - a.completed)
     .slice(0, 10)
     .map(([id, s], i) => `\`${i + 1}\`  <@${id}>  ·  **${s.completed}** order${s.completed === 1 ? '' : 's'}  ·  avg ${minutes(s.avgMinutes)}`);
-  return {
-    embeds: [
-      panelEmbed()
-        .setTitle(`📊  ${title}`)
-        .setDescription(`**${dayLabel(stats.date)}**`)
-        .addFields(
-          field('📥  Submitted', String(stats.submitted), true),
-          field('✅  Completed', String(stats.completed), true),
-          field('❌  Cancelled', String(stats.cancelled), true),
-          field('🏆  Most orders', stats.most ? `<@${stats.most.userId}>\n${stats.most.completed} completed` : '—', true),
-          field('⚡  Fastest', stats.fastest ? `<@${stats.fastest.userId}>\navg ${minutes(stats.fastest.avgMinutes)}` : '—', true),
-          field('💷  Fees', money(stats.fees), true),
-          field('📋  Leaderboard', board.join('\n') || '*No completed orders.*'),
-        )
-        .setFooter(footer('Speed = time from accept to complete')),
+  return v2Panel({
+    title: `📊  ${title}`,
+    intro: `**${dayLabel(stats.date)}**${ping ? `  ${ping}` : ''}`,
+    sections: [
+      {
+        body: [
+          `📥  **Submitted** ${stats.submitted}   ✅  **Completed** ${stats.completed}   ❌  **Cancelled** ${stats.cancelled}`,
+          `💷  **Fees** ${money(stats.fees)}`,
+          `🏆  **Most orders** ${stats.most ? `<@${stats.most.userId}> (${stats.most.completed})` : '—'}`,
+          `⚡  **Fastest** ${stats.fastest ? `<@${stats.fastest.userId}> (avg ${minutes(stats.fastest.avgMinutes)})` : '—'}`,
+        ].join('\n'),
+      },
+      { heading: '📋  Leaderboard', body: board.join('\n') || '*No completed orders.*' },
     ],
-    components: [row(button(`stats:me:${stats.date}`, 'Get my personal stats', ButtonStyle.Primary, '📈'))],
-  };
+    note: 'Speed = time from accept to complete',
+    rows: [row(button(`stats:me:${stats.date}`, 'Get my personal stats', ButtonStyle.Primary, '📈'))],
+    icon: false,
+  });
 }
 
 export function personalStatsEmbed(stats, userId) {
@@ -1029,16 +1028,12 @@ export function suggestionListEmbeds(suggestions) {
 }
 
 export function suggestionSticky(count) {
-  return {
-    embeds: [
-      panelEmbed()
-        .setTitle('💡 Got an idea for the bot?')
-        .setDescription(`Press **Add suggestion** and it goes straight onto the list above. ✨\n📋 **${count}** suggestion${count === 1 ? '' : 's'} so far.`),
-    ],
-    components: [
-      row(button('suggest:add', 'Add suggestion', ButtonStyle.Success, '➕'), button('suggest:clear', 'Clear list', ButtonStyle.Danger, '🧹')),
-    ],
-  };
+  return v2Panel({
+    title: '💡  Got an idea for the bot?',
+    intro: `Press **Add suggestion** and it goes straight onto the list above. **${count}** suggestion${count === 1 ? '' : 's'} so far.`,
+    rows: [row(button('suggest:add', 'Add suggestion', ButtonStyle.Success, '➕'), button('suggest:clear', 'Clear list', ButtonStyle.Danger, '🧹'))],
+    icon: false,
+  });
 }
 
 export function suggestionModal() {
@@ -1068,21 +1063,16 @@ export function suggestionClearConfirm(count) {
 // --- applications ---
 
 export function applyPanel() {
-  return {
-    embeds: [
-      panelEmbed()
-        .setTitle('📝  Applications')
-        .setDescription('**Want to join the team or partner with us?** Apply below. The questions are sent to your DMs.')
-        .addFields(
-          field('🧑‍🍳  Become an orderer', 'VC proof, vouches, order proof, other servers and your active times. Accepted applicants start as **trial orderers**.'),
-          field('🤝  Partner with us', 'Your server link, members, and what you\'re looking for.'),
-        )
-        .setFooter(footer('Keep your DMs open  •  We DM you the result')),
+  return v2Panel({
+    title: '📝  Applications',
+    intro: 'Want to join the team or partner with us? Apply below. The questions are sent to your DMs.',
+    sections: [
+      { heading: '🧑‍🍳  Become an orderer', body: 'VC proof, vouches, order proof, other servers and your active times. Accepted applicants start as **trial orderers**.' },
+      { heading: '🤝  Partner with us', body: 'Your server link, members, and what you\'re looking for.' },
     ],
-    components: [
-      row(button('apply:orderer', 'Apply to be an orderer', ButtonStyle.Success, '🧑‍🍳'), button('apply:partner', 'Apply to be a partner', ButtonStyle.Primary, '🤝')),
-    ],
-  };
+    note: 'Keep your DMs open  •  We DM you the result',
+    rows: [row(button('apply:orderer', 'Apply to be an orderer', ButtonStyle.Success, '🧑‍🍳'), button('apply:partner', 'Apply to be a partner', ButtonStyle.Primary, '🤝'))],
+  });
 }
 
 export function applicationQuestion(form, index, answered = null) {

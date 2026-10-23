@@ -6,6 +6,7 @@ import path from 'node:path';
 import { commands } from '../src/commands.js';
 import { Store } from '../src/store.js';
 import * as views from '../src/views.js';
+import { card } from './helpers.js';
 
 const tempStore = () => new Store(path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'r4-')), 'store.json'));
 const ids = (rows) => rows.flatMap((r) => r.toJSON().components.map((c) => c.custom_id ?? c.url));
@@ -47,8 +48,8 @@ test('loyalty: 10 completed orders in 21 days earns one code, then starts again'
 
   const progress = views.loyaltyProgressEmbed([{ completedAt: hours(1) }, { completedAt: hours(2) }, { completedAt: hours(3) }], rules).toJSON();
   assert.ok(progress.description.startsWith('🍔 🍔 🍔 ⚪ ⚪\n⚪ ⚪ ⚪ ⚪ ⚪') && progress.description.includes('**3 / 10**'));
-  assert.ok(JSON.stringify(views.loyaltyPanel(rules).embeds[0].toJSON()).includes('3 weeks'));
-  assert.deepEqual(ids(views.loyaltyPanel(rules).components), ['loyalty:check']);
+  assert.ok(card(views.loyaltyPanel(rules)).text.includes('3 weeks'));
+  assert.deepEqual(card(views.loyaltyPanel(rules)).ids, ['loyalty:check']);
 });
 
 test('daily stats: submitted, completed, cancelled, most orders and fastest', () => {
@@ -71,9 +72,9 @@ test('daily stats: submitted, completed, cancelled, most orders and fastest', ()
   assert.equal(Math.round(stats.byOrderer.slow.avgMinutes), 30);
 
   const view = views.dailyStatsView(stats);
-  const text = JSON.stringify(view.embeds[0].toJSON());
-  assert.ok(text.includes('<@slow>') && text.includes('avg 5 min') && text.includes('£7.50'));
-  assert.deepEqual(ids(view.components), [`stats:me:${today}`]);
+  const { text, ids: buttons } = card(views.dailyStatsView(stats, { ping: '<@&ord>' }));
+  assert.ok(text.includes('<@slow>') && text.includes('avg 5 min') && text.includes('£7.50') && text.includes('<@&ord>'));
+  assert.deepEqual(buttons, [`stats:me:${today}`]);
   const mine = JSON.stringify(views.personalStatsEmbed(stats, 'slow').toJSON());
   assert.ok(mine.includes('#1 of 2') && mine.includes('20 min fastest'));
   assert.ok(JSON.stringify(views.personalStatsEmbed(stats, 'nobody').toJSON()).includes('0 orders'));
@@ -94,21 +95,29 @@ test('address picker, address book and prefilled form', () => {
   views.addressModal().toJSON();
 });
 
-test('every panel is one colour, has no divider lines, and fits Discord limits', async () => {
+test('every panel is a one-colour V2 card with the server icon, no text dividers, within Discord limits', async () => {
   const promos = (await import('../src/config.js')).loadPromos();
   const { THEME } = await import('../src/util.js');
+  const { TOS } = await import('../src/tos.js');
+  const { MessageFlags } = await import('discord.js');
   views.setBrand('Food Hub', 'https://cdn.discordapp.com/icons/1/a.png');
+  const busy = Object.fromEntries(Object.keys(promos).map((k) => [k, ['1', '2', '3', '4']]));
+  const trials = Object.fromEntries(Array.from({ length: 30 }, (_, i) => [`u${i}`, { completed: Array.from({ length: 9 }, (_, j) => ({ id: 100000 + j, completedAt: new Date().toISOString() })), inProgress: [] }]));
   const panels = [
-    views.ordersPanel(promos), views.supportPanel(), views.verifyPanel('https://x.y'), views.vouchSticky(), views.staffPanel(),
-    views.transcriptPanel(false), views.trialPanel({}, 'r'), views.referralPanel(), views.loyaltyPanel({ orders: 10, days: 21 }), views.applyPanel(), views.whyPanel(),
+    views.ordersPanel(promos, busy), views.supportPanel(), views.verifyPanel('https://x.y'), views.vouchSticky(), views.staffPanel(), views.tosPanel(TOS),
+    views.transcriptPanel(false), views.trialPanel(trials, 'r'), views.referralPanel(), views.loyaltyPanel({ orders: 10, days: 21 }), views.applyPanel(), views.whyPanel(),
+    views.suggestionSticky(2), views.giveawayView({ id: 1, title: 'T', info: 'x'.repeat(3000), winners: 1, endsAt: new Date().toISOString(), hostId: 'h', entrants: [], winnerIds: [], status: 'running' }),
   ];
   for (const p of panels) {
-    const json = p.embeds[0].toJSON();
-    assert.equal(json.color, THEME);
-    assert.equal(json.author.name, 'Food Hub', json.title);
-    assert.ok(!JSON.stringify(json).includes('━'), json.title);
-    assert.ok(JSON.stringify(json).length < 6000);
+    const c = card(p);
+    assert.equal(p.flags, MessageFlags.IsComponentsV2);
+    assert.equal(c.json.accent_color, THEME);
+    assert.ok(!c.text.includes('━'), c.text.slice(0, 40));
+    assert.ok(c.text.length <= 4000, `${c.text.slice(0, 40)}: ${c.text.length} chars`);
+    assert.ok(c.count <= 40, `${c.text.slice(0, 40)}: ${c.count} components`);
   }
+  const thumb = card(views.supportPanel()).json.components[0].accessory;
+  assert.equal(thumb.media.url, 'https://cdn.discordapp.com/icons/1/a.png', 'server icon beside the heading');
   const names = commands.map((c) => c.toJSON().name);
   for (const n of ['award', 'loyaltypanel', 'stats']) assert.ok(names.includes(n), n);
   assert.equal(new Set(names).size, names.length);
