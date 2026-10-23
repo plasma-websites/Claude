@@ -52,7 +52,7 @@ const CAPTCHA_EMOJIS = ['🍔', '🍕', '🍟', '🌮', '🍩', '🍣', '🥗', 
 const CAPTCHA_MS = 2 * 60 * 1000;
 const CANCEL_DELETE_MS = 10 * 1000;
 
-export function createOrderHandlers({ client, config, store, promos, transcripts, trials, loyalty }) {
+export function createOrderHandlers({ client, config, store, promos, transcripts, trials, loyalty, referrals }) {
   // Members who finished the questions and still owe us a screenshot, by user ID.
   const awaitingScreenshot = new Map();
 
@@ -537,6 +537,7 @@ export function createOrderHandlers({ client, config, store, promos, transcripts
     const vouchHint = config.vouchChannelId ? `\n⭐ Happy with it? Leave a vouch in <#${config.vouchChannelId}>!` : '';
     dm(client, order.customerId, `🟢 Your **${label(order)}** has been completed! Enjoy 😋${vouchHint}`);
     loyalty?.checkReward(order.customerId);
+    referrals?.onOrderCompleted(order.customerId);
     await done(interaction, `✅ Order #${order.id} completed.`);
   }
 

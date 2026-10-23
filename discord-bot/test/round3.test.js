@@ -44,29 +44,28 @@ test('discount codes: personal, single use, and given back when the order is can
   assert.equal(discountedFee(0.3, { type: 'discount', amount: 0.5 }), 0);
 });
 
-test('referrals: 3 joins and 2 completed orders earn a repeatable free-fee code; invitees get one discount', () => {
+test('referrals: invitee gets 50p after their first order; inviter gets one free-fee order when 3 friends have ordered', () => {
   const store = tempStore();
   store.setInviteLink('ref', 'abc');
   assert.equal(store.inviteOwner('abc'), 'ref');
   assert.equal(store.recordJoin('ref', 'ref'), false, 'no self-referrals');
-  for (const id of ['a', 'b', 'c']) assert.equal(store.recordJoin(id, 'ref'), true);
+  for (const id of ['a', 'b', 'c', 'd', 'e', 'f']) assert.equal(store.recordJoin(id, 'ref'), true);
   assert.equal(store.recordJoin('a', 'other'), false, 'first referrer keeps them');
 
+  assert.equal(store.claimInviteeReward('a', 0.5).error, 'not_yet', 'nothing before the first order');
   completeOrder(store, 'a');
-  assert.equal(store.claimReferralReward('ref').error, 'not_yet');
-  completeOrder(store, 'b');
-  const { code } = store.claimReferralReward('ref');
-  assert.equal(code.type, 'free');
-  assert.equal(store.claimReferralReward('ref').error, 'not_yet', 'the same two orders don\'t count twice');
-  completeOrder(store, 'c');
-  for (const id of ['d', 'e']) store.recordJoin(id, 'ref');
-  completeOrder(store, 'd');
-  assert.ok(store.claimReferralReward('ref').code, 'no limit on rewards');
+  const { code } = store.claimInviteeReward('a', 0.5);
+  assert.deepEqual([code.type, code.amount, code.ownerId], ['discount', 0.5, 'a']);
+  assert.equal(store.claimInviteeReward('a', 0.5).error, 'claimed', 'once only');
+  assert.equal(store.claimInviteeReward('stranger', 0.5).error, 'not_invited');
 
-  assert.equal(store.claimInviteeDiscount('e', 0.5).code.amount, 0.5);
-  assert.equal(store.claimInviteeDiscount('e', 0.5).error, 'claimed');
-  assert.equal(store.claimInviteeDiscount('a', 0.5).error, 'ordered');
-  assert.equal(store.claimInviteeDiscount('stranger', 0.5).error, 'not_invited');
+  completeOrder(store, 'b');
+  assert.equal(store.claimReferralReward('ref').error, 'not_yet', '2 of 3');
+  completeOrder(store, 'c');
+  assert.equal(store.claimReferralReward('ref').code.type, 'free');
+  for (const id of ['d', 'e', 'f']) completeOrder(store, id);
+  assert.equal(store.claimReferralReward('ref').error, 'claimed', 'the inviter reward is once only');
+  assert.equal(store.codesFor('ref').length, 1);
 });
 
 test('trial stats, keep open, staff cancel and online timeouts', () => {
@@ -108,11 +107,12 @@ test('schedules parse common formats and fire at the slot start', () => {
 });
 
 test('new panels and forms serialize within Discord limits', () => {
-  assert.deepEqual(ids(views.referralPanel().components), ['ref:link', 'ref:claim', 'ref:invited', 'ref:codes']);
+  assert.deepEqual(ids(views.referralPanel().components), ['ref:link', 'ref:stats', 'ref:codes']);
   const msg = views.codeMessage({ code: 'FH-ABC234', type: 'discount', amount: 0.5 }, 'hi');
   assert.equal(msg.content, 'FH-ABC234');
   assert.deepEqual(ids(msg.components), ['ref:copy:FH-ABC234']);
-  views.referralStatsEmbed({ invited: ['a'], ordered: [], rewarded: [] }, { invites: 3, orders: 2, tracking: false }).toJSON();
+  const stats = JSON.stringify(views.referralStatsEmbed({ invited: ['a', 'b'], ordered: ['a'], rewarded: false }, { reward: 'waiting', tracking: false }).toJSON());
+  assert.ok(stats.includes('✅  <@a>') && stats.includes('⏳  <@b>') && stats.includes('first order') && stats.includes('Tracking is off') && stats.includes('1/3') && stats.includes('2 more to go'));
 
   const list = views.suggestionListEmbeds(Array.from({ length: 60 }, (_, i) => ({ number: i + 1, userId: '1', text: 'x'.repeat(200), createdAt: new Date().toISOString() })));
   assert.ok(list.length > 1 && list.every((e) => e.toJSON().description.length <= 4096));

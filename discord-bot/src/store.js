@@ -5,8 +5,7 @@ import path from 'node:path';
 // done for the customer even while their ticket waits to auto-close.
 const OPEN = new Set(['pending', 'accepted']);
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O or 1/I to mix up
-export const REFERRAL_INVITES = 3;
-export const REFERRAL_ORDERS = 2;
+export const REFERRAL_ORDERS = 3; // friends who complete an order to earn the inviter's free-fee order
 const MAX_ADDRESSES = 5;
 const now = () => new Date().toISOString();
 
@@ -26,7 +25,7 @@ export class Store {
     this.file = file;
     this.data = {
       orders: {}, support: {}, vouches: [], payments: {}, staff: {}, questions: {}, giveaways: {}, codes: {}, suggestions: [], applications: {},
-      referrals: { links: {}, joins: {}, rewarded: [], discountClaimed: [] },
+      referrals: { links: {}, joins: {}, inviterRewarded: [], discountClaimed: [] },
       addresses: {},
       meta: {},
     };
@@ -473,29 +472,33 @@ export class Store {
     return Object.values(this.data.orders).some((o) => o.customerId === userId && o.completedAt);
   }
 
-  // { invited: [ids], ordered: [ids that completed an order and haven't been used for a reward yet], rewarded }
+  // invited: everyone who joined with their link; ordered: those who've completed an order.
   referralStats(userId) {
     const invited = Object.entries(this.data.referrals.joins).filter(([, j]) => j.referrerId === userId).map(([id]) => id);
-    const rewarded = invited.filter((id) => this.data.referrals.rewarded.includes(id));
-    const ordered = invited.filter((id) => !rewarded.includes(id) && this.hasCompletedOrder(id));
-    return { invited, ordered, rewarded };
+    return { invited, ordered: invited.filter((id) => this.hasCompletedOrder(id)), rewarded: this.inviterRewarded(userId) };
   }
 
-  // 3 people invited and 2 of them ordered = one free-fee code. Repeatable: each reward uses up 2 new orderers.
+  inviterRewarded(userId) {
+    return (this.data.referrals.inviterRewarded ??= []).includes(userId);
+  }
+
+  // Inviter reward: once REFERRAL_ORDERS friends have completed an order, one free-fee code. Once only.
   claimReferralReward(userId) {
     const stats = this.referralStats(userId);
-    if (stats.invited.length < REFERRAL_INVITES || stats.ordered.length < REFERRAL_ORDERS) return { error: 'not_yet', stats };
-    this.data.referrals.rewarded.push(...stats.ordered.slice(0, REFERRAL_ORDERS));
+    if (stats.rewarded) return { error: 'claimed', stats };
+    if (stats.ordered.length < REFERRAL_ORDERS) return { error: 'not_yet', stats };
+    this.data.referrals.inviterRewarded.push(userId);
     const code = this.createCode({ type: 'free', ownerId: userId, reason: `Referral reward (${stats.ordered.slice(0, REFERRAL_ORDERS).join(', ')})` });
     return { code, stats: this.referralStats(userId) };
   }
 
-  // The invited member's one-off first-order discount.
-  claimInviteeDiscount(userId, amount) {
+  // Invited member's reward: a discount code for their second order, given once
+  // their first order is completed.
+  claimInviteeReward(userId, amount) {
     const referrerId = this.referrerOf(userId);
     if (!referrerId) return { error: 'not_invited' };
     if (this.data.referrals.discountClaimed.includes(userId)) return { error: 'claimed' };
-    if (this.hasCompletedOrder(userId)) return { error: 'ordered' };
+    if (!this.hasCompletedOrder(userId)) return { error: 'not_yet' };
     this.data.referrals.discountClaimed.push(userId);
     return { code: this.createCode({ type: 'discount', amount, ownerId: userId, reason: `Invited by ${referrerId}` }) };
   }

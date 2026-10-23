@@ -1,9 +1,9 @@
 import { MessageFlags } from 'discord.js';
-import { REFERRAL_INVITES, REFERRAL_ORDERS } from './store.js';
+import { REFERRAL_ORDERS } from './store.js';
 import { COLORS, dm, ephemeral, isAdmin, say } from './util.js';
 import { codeMessage, referralStatsEmbed } from './views.js';
 
-export const INVITEE_DISCOUNT = 0.5; // pounds off the invited member's first order
+export const INVITEE_DISCOUNT = 0.5; // pounds off the invited member's second order
 
 // Referral panel: personal invite links, tracked joins, and discount codes.
 // Knowing which link someone joined with needs the Server Members intent and
@@ -43,7 +43,25 @@ export function createReferrals({ client, config, store }) {
     if (!store.recordJoin(member.id, referrerId)) return;
     const { invited } = store.referralStats(referrerId);
     dm(client, referrerId, say(`🎉 <@${member.id}> joined with your invite link! That's **${invited.length}** so far.`, {}, { title: '🤝 New referral' }));
-    dm(client, member.id, say('👋 Welcome to Food Hub! You were invited by a friend, so you get **50p off your first order**.\nPress **🎟️ I was invited** on the referrals panel to get your code.', {}, { title: '🎟️ First-order discount' }));
+    dm(client, member.id, say('👋 Welcome to Food Hub! You were invited by a friend, so once your **first order** is completed you\'ll get **50p off your second order**. The code comes to your DMs automatically.', {}, { title: '🎟️ Invite reward' }));
+  }
+
+  // Called when an order is completed. The invited member's first completed order earns
+  // their 50p code, and may be the 3rd that earns their inviter's free-fee order.
+  function onOrderCompleted(userId) {
+    const invitee = store.claimInviteeReward(userId, INVITEE_DISCOUNT);
+    if (invitee.code) {
+      dm(client, userId, codeMessage(invitee.code, '🎉 **Thanks for your first order!** You joined with a friend\'s invite, so here\'s **50p off your second order**. 🍔'));
+    }
+    const referrerId = store.referrerOf(userId);
+    if (referrerId) giveInviterReward(referrerId);
+  }
+
+  function giveInviterReward(userId) {
+    const result = store.claimReferralReward(userId);
+    if (result.code) {
+      dm(client, userId, codeMessage(result.code, `🏆 **Referral reward unlocked!** ${REFERRAL_ORDERS} friends you invited have ordered, so here's your **FREE FEE ORDER**. 🎉`));
+    }
   }
 
   async function getLink(interaction) {
@@ -62,29 +80,17 @@ export function createReferrals({ client, config, store }) {
     }
   }
 
-  function claim(interaction) {
-    const result = store.claimReferralReward(interaction.user.id);
-    if (result.error) {
-      return interaction.reply({ embeds: [referralStatsEmbed(result.stats, { invites: REFERRAL_INVITES, orders: REFERRAL_ORDERS, tracking })], flags: MessageFlags.Ephemeral });
-    }
-    return interaction.reply({
-      ...codeMessage(result.code, `🏆 **Reward unlocked!** Here's your **FREE FEE ORDER** code. Enter it in the order form and the service fee comes off. 🎉`),
-      flags: MessageFlags.Ephemeral,
-    });
-  }
-
-  function invitedDiscount(interaction) {
-    const result = store.claimInviteeDiscount(interaction.user.id, INVITEE_DISCOUNT);
-    const errors = {
-      not_invited: '🤔 I don\'t have you down as joining through someone\'s invite link, so there\'s no discount to claim.',
-      claimed: '✅ You\'ve already claimed your first-order discount. Press **My codes** to see it.',
-      ordered: 'This discount is for your **first** order, and you\'ve already ordered with us. 💛',
-    };
-    if (result.error) return interaction.reply(ephemeral(errors[result.error]));
-    return interaction.reply({
-      ...codeMessage(result.code, '🎟️ Here\'s your **discounted order code** — **50p off** the service fee on your first order. Enter it in the order form. 🍔'),
-      flags: MessageFlags.Ephemeral,
-    });
+  // My referrals: the friends who joined with their link, and their own invite reward if they were invited.
+  function myReferrals(interaction) {
+    onOrderCompleted(interaction.user.id); // in case an earlier reward DM failed
+    giveInviterReward(interaction.user.id);
+    const reward = store.referrerOf(interaction.user.id)
+      ? store.data.referrals.discountClaimed.includes(interaction.user.id)
+        ? 'claimed'
+        : 'waiting'
+      : null;
+    const rules = { orders: REFERRAL_ORDERS };
+    return interaction.reply({ embeds: [referralStatsEmbed(store.referralStats(interaction.user.id), { reward, tracking, rules })], flags: MessageFlags.Ephemeral });
   }
 
   function myCodes(interaction) {
@@ -117,13 +123,16 @@ export function createReferrals({ client, config, store }) {
     const [, action, code] = interaction.customId.split(':');
     switch (action) {
       case 'link': return getLink(interaction);
-      case 'claim': return claim(interaction);
-      case 'invited': return invitedDiscount(interaction);
+      // claim / invited are buttons on panels posted before the referral change.
+      case 'stats':
+      case 'claim':
+      case 'invited':
+        return myReferrals(interaction);
       case 'codes': return myCodes(interaction);
       // The bare code as message text, easy to long-press and copy on mobile.
       case 'copy': return interaction.reply({ content: code, flags: MessageFlags.Ephemeral });
     }
   }
 
-  return { loadInvites, inviteCreated, memberJoined, handleComponent, award };
+  return { loadInvites, inviteCreated, memberJoined, handleComponent, award, onOrderCompleted };
 }

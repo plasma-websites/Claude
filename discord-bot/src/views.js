@@ -867,33 +867,33 @@ export function referralPanel() {
     embeds: [
       panelEmbed()
         .setTitle('🎉  Foodhub Referrals — Win-Win!')
-        .setDescription('Refer **3 friends**, and if **2 place an order**, you score a **FREE FEE ORDER**!')
+        .setDescription('Get **3 friends** to order with us and you score a **FREE FEE ORDER**!')
         .addFields(
-          field('🤝  You both win', 'They get a first-order discount, and you get yours upon confirmation. **No limits!**'),
-          field('🚀  Important', 'They *must* join with **your personal invite link** so it counts.'),
+          field('🤝  You both win', 'Your friends get **50p off their second order**, and your free-fee code is DMed to you automatically.'),
           field(
             '📋  How it works',
             steps([
               'Press **Get my invite link** and share it',
-              'Friends join and press **I was invited** for **50p off**',
-              'When 3 have joined and 2 have ordered, press **Claim my reward**',
-              'Put your code in the order form and the fee comes off',
+              'Friends join Food Hub with **your link**',
+              'After a friend\'s **first order**, they\'re DMed a **50p-off code** for their second',
+              'Once **3** of your friends have ordered, your **free-fee code** is DMed to you',
             ]),
           ),
+          field('🚀  Important', 'They *must* join with **your personal invite link** so it counts.'),
         )
         .setFooter(footer('Codes are personal and single-use  •  A cancelled order gives the code back')),
     ],
     components: [
       row(
         button('ref:link', 'Get my invite link', ButtonStyle.Primary, '🔗'),
-        button('ref:claim', 'Claim my reward', ButtonStyle.Success, '🏆'),
-        button('ref:invited', 'I was invited', ButtonStyle.Secondary, '🎟️'),
+        button('ref:stats', 'My referrals', ButtonStyle.Secondary, '📊'),
         button('ref:codes', 'My codes', ButtonStyle.Secondary, '📋'),
       ),
     ],
   };
 }
 
+// A discount code: the bare code as the message text (easy to copy), the details in the embed.
 export function codeMessage(code, headline) {
   const value = code.type === 'free' ? '🆓 **No service fee**' : `💷 **£${code.amount.toFixed(2)} off** the service fee`;
   return {
@@ -901,28 +901,29 @@ export function codeMessage(code, headline) {
     embeds: [
       embed()
         .setTitle('🎟️ Your code')
-        .setDescription([headline, '', `🔑 **Code:** \`${code.code}\``, value, '📝 Enter it in the **Discount / referral code** box when you order.'].join('\n')),
+        .setDescription([headline, '', `🔑 **Code:** \`${code.code}\``, value, '📝 Enter it in the **Discount / reward code** box when you order.'].join('\n')),
     ],
     components: [row(button(`ref:copy:${code.code}`, 'Copy code', ButtonStyle.Secondary, '📋'))],
   };
 }
 
-export function referralStatsEmbed(stats, { invites, orders, tracking }) {
-  const bar = (n, total) => '🟩'.repeat(Math.min(n, total)) + '⬜'.repeat(Math.max(0, total - n));
-  return embed()
-    .setTitle('📊 Your referrals')
-    .setDescription(
-      [
-        `👥 **Friends joined:** ${stats.invited.length}/${invites} ${bar(stats.invited.length, invites)}`,
-        `🛒 **Completed an order:** ${stats.ordered.length}/${orders} ${bar(stats.ordered.length, orders)}`,
-        stats.rewarded.length ? `🏆 **Already rewarded for:** ${stats.rewarded.length} friends` : null,
-        '',
-        'Not quite there yet — keep sharing your link! 🚀',
-        tracking ? null : '\n⚠️ Invite tracking is currently off, so new joins aren\'t being counted. Let staff know.',
-      ]
-        .filter((l) => l !== null)
-        .join('\n'),
-    );
+// `reward`: null (they weren't invited), 'waiting' (code comes after their first order) or 'claimed'.
+export function referralStatsEmbed(stats, { reward = null, tracking = true, rules = { orders: 3 } } = {}) {
+  const done = Math.min(stats.ordered.length, rules.orders);
+  const e = embed()
+    .setTitle('📊  Your referrals')
+    .addFields(
+      field('👥  Friends joined', String(stats.invited.length), true),
+      field('🛒  Friends who ordered', `${'🟧'.repeat(done)}${'⬜'.repeat(rules.orders - done)}  ${done}/${rules.orders}`, true),
+      field('🏆  Your free-fee order', stats.rewarded ? '✅ Earned! Check **My codes**' : `${rules.orders - done} more to go`, true),
+    )
+    .setFooter(footer(`${rules.orders} friends order = one free-fee order, sent automatically`));
+  if (stats.invited.length) e.setDescription(stats.invited.slice(0, 20).map((id) => `${stats.ordered.includes(id) ? '✅' : '⏳'}  <@${id}>`).join('\n'));
+  else e.setDescription('Nobody has joined with your link yet. Press **Get my invite link** to get started! 🚀');
+  if (reward === 'waiting') e.addFields(field('🎟️  Your invite reward', 'Complete your **first order** and your 50p-off code for your second order is DMed to you.'));
+  if (reward === 'claimed') e.addFields(field('🎟️  Your invite reward', 'Already sent. Press **My codes** to see it.'));
+  if (!tracking) e.addFields(field('⚠️  Tracking is off', 'New joins aren\'t being counted right now. Let staff know.'));
+  return e;
 }
 
 // --- loyalty ---

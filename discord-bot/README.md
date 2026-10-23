@@ -65,12 +65,14 @@ orderer joins to supervise. `/trialpanel` posts a panel listing every trial orde
 orders** with order numbers and dates, plus orders in progress, updated live.
 
 ## Referrals
-`/referralpanel` posts the **🎉 Foodhub Referrals — Win-Win!** panel:
+`/referralpanel` posts the **🎉 Foodhub Referrals** panel:
 - **🔗 Get my invite link** creates a personal, never-expiring invite link for that member.
 - When someone joins through it, the bot records who invited them and DMs both.
-- **🎟️ I was invited** gives the new member a **50p off** code for their first order (once).
-- **🏆 Claim my reward**: once 3 friends have joined and 2 of them have **completed** an order, the member gets a
-  **free-fee** code. No limit — every 2 more friends who order earn another. Otherwise it shows their progress.
+- **Invited member:** when their **first order** is completed they're DMed a **50p-off code** for their **second
+  order** (once).
+- **Inviter:** once **3 friends** they invited have each completed an order, a **free-fee code** is DMed to them
+  automatically. One free-fee order per inviter.
+- **📊 My referrals** shows progress, who joined with your link and who has ordered, plus your own invite reward status.
 - **📋 My codes** lists their codes. Every code message has a **📋 Copy code** button.
 
 Codes are personal and single-use. They're typed into the order form; the fee drops straight away and the code is
