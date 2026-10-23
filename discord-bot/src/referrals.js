@@ -1,6 +1,6 @@
 import { MessageFlags } from 'discord.js';
 import { REFERRAL_INVITES, REFERRAL_ORDERS } from './store.js';
-import { COLORS, dm, ephemeral, say } from './util.js';
+import { COLORS, dm, ephemeral, isAdmin, say } from './util.js';
 import { codeMessage, referralStatsEmbed } from './views.js';
 
 export const INVITEE_DISCOUNT = 0.5; // pounds off the invited member's first order
@@ -94,6 +94,25 @@ export function createReferrals({ client, config, store }) {
     return interaction.reply(ephemeral(lines.join('\n'), {}, { title: '🎟️ Your codes' }));
   }
 
+  // /award user: [reason:] — a free-fee code from staff, DMed to the member.
+  async function award(interaction) {
+    if (!isAdmin(interaction)) return interaction.reply(ephemeral('Only admins can award codes.', {}, { color: COLORS.danger }));
+    const user = interaction.options.getUser('user', true);
+    if (user.bot) return interaction.reply(ephemeral('Bots can\'t order.'));
+    const reason = interaction.options.getString('reason')?.trim();
+    const code = store.createCode({ type: 'free', ownerId: user.id, reason: `Award by ${interaction.user.tag}${reason ? `: ${reason}` : ''}` });
+    const sent = await dm(client, user.id, codeMessage(code, `🏆 **You've been awarded a free-fee order!**${reason ? `\n📝 ${reason}` : ''}`));
+    return interaction.reply(
+      ephemeral(
+        sent
+          ? `🏆 Sent <@${user.id}> a free-fee code: \`${code.code}\``
+          : `🏆 Code \`${code.code}\` created for <@${user.id}>, but their DMs are closed. Send it to them yourself.`,
+        {},
+        { color: COLORS.success },
+      ),
+    );
+  }
+
   function handleComponent(interaction) {
     const [, action, code] = interaction.customId.split(':');
     switch (action) {
@@ -106,5 +125,5 @@ export function createReferrals({ client, config, store }) {
     }
   }
 
-  return { loadInvites, inviteCreated, memberJoined, handleComponent };
+  return { loadInvites, inviteCreated, memberJoined, handleComponent, award };
 }

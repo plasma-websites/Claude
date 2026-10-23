@@ -22,6 +22,14 @@ export const commands = [
   panelCommand('referralpanel', 'Post the referrals panel (invite links, rewards and codes)'),
   panelCommand('suggestionpanel', 'Post (or move) the bot suggestions list and panel'),
   panelCommand('applypanel', 'Post the orderer / partner applications panel'),
+  panelCommand('loyaltypanel', 'Post the loyalty panel (orders in a few weeks = a free-fee order)'),
+  new SlashCommandBuilder()
+    .setName('award')
+    .setDescription('Give a member a free-fee order code (DMed to them)')
+    .setDefaultMemberPermissions(P.ManageGuild)
+    .addUserOption((o) => o.setName('user').setDescription('Who gets the code').setRequired(true))
+    .addStringOption((o) => o.setName('reason').setDescription('Shown to them in the DM').setMaxLength(200)),
+  new SlashCommandBuilder().setName('stats').setDescription('Today\'s order stats so far (staff only)'),
 
   // In a ticket, instead of scrolling up to the buttons (staff only, checked by the bot)
   new SlashCommandBuilder().setName('complete').setDescription('Complete the order in this ticket'),

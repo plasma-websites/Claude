@@ -1,8 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { MessageFlags, OverwriteType } from 'discord.js';
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags, OverwriteType } from 'discord.js';
 import { randomBytes, randomInt } from 'node:crypto';
-import { SERVICES, discountedFee, money } from './services.js';
+import { SERVICES, STATUS, discountedFee, money } from './services.js';
 import {
   COLORS,
   createTicketChannel,
@@ -20,6 +20,10 @@ import {
   say,
 } from './util.js';
 import {
+  addressFieldOf,
+  addressModal,
+  addressPicker,
+  addressesView,
   answerEmbed,
   answerModal,
   askQuestionModal,
@@ -48,12 +52,14 @@ const CAPTCHA_EMOJIS = ['🍔', '🍕', '🍟', '🌮', '🍩', '🍣', '🥗', 
 const CAPTCHA_MS = 2 * 60 * 1000;
 const CANCEL_DELETE_MS = 10 * 1000;
 
-export function createOrderHandlers({ client, config, store, promos, transcripts, trials }) {
+export function createOrderHandlers({ client, config, store, promos, transcripts, trials, loyalty }) {
   // Members who finished the questions and still owe us a screenshot, by user ID.
   const awaitingScreenshot = new Map();
 
   // Little "press the 🍕" checks shown before accepting, by token.
   const captchas = new Map();
+  // The address each member typed in their latest order form, for "Save address".
+  const lastAddress = new Map();
 
   const isStaff = (interaction) => isOrderer(interaction.member, config) || isAdmin(interaction);
   // Buttons on the ticket panel update it in place; the same actions as /commands answer privately.
@@ -144,8 +150,63 @@ export function createOrderHandlers({ client, config, store, promos, transcripts
     return interaction.update(vcPicker(serviceKey, interaction.values[0]));
   }
 
+  // With saved addresses, ask which one first; otherwise straight to the form.
   function pickVc(interaction, serviceKey, promoValue, answer) {
+    const saved = addressFieldOf(serviceKey) ? store.addressesOf(interaction.user.id) : [];
+    if (saved.length) return interaction.update(addressPicker(serviceKey, promoValue, answer, saved));
     return interaction.showModal(detailsModal(serviceKey, promoValue, answer));
+  }
+
+  function pickAddress(interaction, serviceKey, promoValue, answer) {
+    const choice = interaction.values[0];
+    const address = choice === 'new' ? null : store.addressesOf(interaction.user.id)[Number(choice)];
+    const prefill = address ? { [addressFieldOf(serviceKey).id]: address } : {};
+    return interaction.showModal(detailsModal(serviceKey, promoValue, answer, prefill));
+  }
+
+  // --- saved addresses ---
+
+  function saveLastAddress(interaction) {
+    const address = lastAddress.get(interaction.user.id);
+    if (!address) return interaction.reply(ephemeral('I don\'t have an address from you to save. Add one with **My addresses** on the order panel.'));
+    store.saveAddress(interaction.user.id, address);
+    return interaction.update({ embeds: [...interaction.message.embeds, panel('📍 **Address saved!** It\'ll be offered next time you order.')], components: [] });
+  }
+
+  function handleAddresses(interaction, action) {
+    const userId = interaction.user.id;
+    switch (action) {
+      case 'addresses': return interaction.reply({ ...addressesView(store.addressesOf(userId)), flags: MessageFlags.Ephemeral });
+      case 'addradd': return interaction.showModal(addressModal());
+      case 'addrsave': {
+        const list = store.saveAddress(userId, interaction.fields.getTextInputValue('address'));
+        return interaction.isFromMessage() ? interaction.update(addressesView(list)) : interaction.reply({ ...addressesView(list), flags: MessageFlags.Ephemeral });
+      }
+      case 'addrdel': return interaction.update(addressesView(store.removeAddress(userId, Number(interaction.values[0]))));
+      case 'saveaddr': return saveLastAddress(interaction);
+    }
+  }
+
+  // /myorders and the My orders button on the order panel.
+  function myOrders(interaction) {
+    const list = store.recentOrdersFor(interaction.user.id);
+    if (!list.length) return interaction.reply(ephemeral('📭 You have no orders yet.'));
+    const lines = list.map((o) => {
+      const s = STATUS[o.status];
+      const ticket = o.ticketChannelId && ['accepted', 'completed'].includes(o.status) ? `  ·  <#${o.ticketChannelId}>` : '';
+      return `\`#${o.id}\`  ${SERVICES[o.service].emoji} ${SERVICES[o.service].label}  ·  ${s.emoji} ${s.label}${ticket}`;
+    });
+    return interaction.reply(ephemeral(lines.join('\n'), {}, { title: '📦  Your recent orders' }));
+  }
+
+  // The address as plain text (no embed), so it's easy to long-press and copy on mobile.
+  function copyAddress(interaction, id) {
+    const order = store.getOrder(id);
+    if (!order) return interaction.reply(ephemeral('That order no longer exists.'));
+    if (!isStaff(interaction) && interaction.user.id !== order.customerId) return interaction.reply(ephemeral('Only staff and the customer can do this.'));
+    const parts = SERVICES[order.service].fields.filter((f) => f.id !== 'notes').map((f) => order.details?.[f.id]?.trim()).filter(Boolean);
+    if (!parts.length) return interaction.reply(ephemeral('This order has no address.'));
+    return interaction.reply({ content: parts.join('\n\n'), flags: MessageFlags.Ephemeral });
   }
 
   async function submitDetails(interaction, serviceKey, promoValue, answer) {
@@ -191,7 +252,15 @@ export function createOrderHandlers({ client, config, store, promos, transcripts
       );
     }
     const codeNote = code ? `\n🎟️ Code \`${code.code}\` will be applied: service fee **${money(discountedFee(promo.fee, code))}** instead of ${money(promo.fee)}.` : '';
-    return interaction.update(say(`📬 **Check your DMs!** Send your order screenshot there to finish your order. 📸${codeNote}`, { components: [] }, { color: COLORS.success }));
+    const addressField = addressFieldOf(serviceKey);
+    const typed = addressField ? details[addressField.id]?.trim() : null;
+    const isNew = typed && !store.addressesOf(interaction.user.id).some((a) => a.toLowerCase() === typed.toLowerCase());
+    if (isNew) lastAddress.set(interaction.user.id, typed);
+    return interaction.update(
+      say(`📬 **Check your DMs!** Send your order screenshot there to finish your order. 📸${codeNote}`, {
+        components: isNew ? [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('order:saveaddr').setLabel('Save this address').setStyle(ButtonStyle.Secondary).setEmoji('📍'))] : [],
+      }),
+    );
   }
 
   // --- step 5: screenshot arrives in DMs ---
@@ -467,6 +536,7 @@ export function createOrderHandlers({ client, config, store, promos, transcripts
     }
     const vouchHint = config.vouchChannelId ? `\n⭐ Happy with it? Leave a vouch in <#${config.vouchChannelId}>!` : '';
     dm(client, order.customerId, `🟢 Your **${label(order)}** has been completed! Enjoy 😋${vouchHint}`);
+    loyalty?.checkReward(order.customerId);
     await done(interaction, `✅ Order #${order.id} completed.`);
   }
 
@@ -543,9 +613,23 @@ export function createOrderHandlers({ client, config, store, promos, transcripts
     }
   }
 
+  // An hour after completion, one DM asking for a vouch (skipped if they already vouched).
+  function remindVouches() {
+    if (!config.vouchChannelId) return;
+    for (const order of store.vouchRemindersDue()) {
+      store.updateOrder(order.id, { vouchReminded: true });
+      dm(
+        client,
+        order.customerId,
+        say(`Hope you enjoyed your **${label(order)}**! 😋\nIf you've got a sec, a vouch in <#${config.vouchChannelId}> really helps us out. It only takes a minute. 💛`, {}, { title: '⭐  How was your order?' }),
+      );
+    }
+  }
+
   // Runs every minute: saves a transcript of, then deletes, tickets whose
   // auto-delete time has passed. If the channel can't be deleted it's locked instead.
   async function autoClose() {
+    remindVouches();
     for (const order of store.dueForClose()) {
       const channelId = order.ticketChannelId;
       await transcripts.saveChannel(channelId);
@@ -564,6 +648,15 @@ export function createOrderHandlers({ client, config, store, promos, transcripts
       case 'service': return pickService(interaction);
       case 'promo': return pickPromo(interaction, a);
       case 'vc': return pickVc(interaction, a, b, c);
+      case 'addr': return pickAddress(interaction, a, b, c);
+      case 'addresses':
+      case 'addradd':
+      case 'addrsave':
+      case 'addrdel':
+      case 'saveaddr':
+        return handleAddresses(interaction, action);
+      case 'myorders': return myOrders(interaction);
+      case 'copyaddr': return copyAddress(interaction, Number(a));
       case 'details': return submitDetails(interaction, a, b, c);
       case 'accept': return startAccept(interaction, Number(a));
       case 'captcha': return solveCaptcha(interaction, a, Number(b));
@@ -581,5 +674,5 @@ export function createOrderHandlers({ client, config, store, promos, transcripts
     }
   }
 
-  return { handleComponent, handleDm, handleQuestion, autoClose, ticketDeleted, sweepDeletedTickets, complete, close, remove, label };
+  return { handleComponent, handleDm, handleQuestion, autoClose, ticketDeleted, sweepDeletedTickets, complete, close, remove, label, myOrders };
 }

@@ -32,10 +32,10 @@ test('giveaway entries toggle, and winners are drawn once each', () => {
 test('giveaway post shows an Enter button, then Reroll once ended', () => {
   const g = { id: 1, title: 'T', info: 'Win stuff', winners: 1, endsAt: new Date().toISOString(), hostId: 'h', entrants: ['a'], winnerIds: [], status: 'running' };
   assert.deepEqual(ids(views.giveawayButtons(g)), ['giveaway:enter:1']);
-  assert.ok(views.giveawayEmbed(g).toJSON().description.includes('Entries:** 1'));
+  assert.equal(views.giveawayEmbed(g).toJSON().fields.find((f) => f.name.includes('Entries')).value, '1');
   const ended = { ...g, status: 'ended', winnerIds: ['a'] };
   assert.deepEqual(ids(views.giveawayButtons(ended)), ['giveaway:enter:1', 'giveaway:reroll:1']);
-  assert.ok(views.giveawayEmbed(ended).toJSON().description.includes('<@a>'));
+  assert.equal(views.giveawayEmbed(ended).toJSON().fields.find((f) => f.name.includes('Winners')).value, '<@a>');
   assert.equal(views.giveawayModal('chan').toJSON().custom_id, 'giveaway:create:chan');
   assert.deepEqual(ids(views.transcriptPanel().components), ['transcript:open']);
 });

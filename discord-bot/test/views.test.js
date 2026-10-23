@@ -17,21 +17,25 @@ const order = {
 const ids = (rows) => rows.flatMap((r) => r.toJSON().components.map((c) => c.custom_id ?? c.url));
 
 test('order panel lists every company with its promos', () => {
-  const { embeds, components } = views.ordersPanel(promos);
-  const text = embeds[0].toJSON().description;
-  for (const s of Object.values(SERVICES)) assert.ok(text.includes(s.label), s.label);
-  assert.ok(text.includes('`15f20`') && text.includes('`12 off`'));
+  const { embeds, components } = views.ordersPanel(promos, { ubereats: ['111'] });
+  const json = embeds[0].toJSON();
+  const fields = Object.fromEntries(json.fields.map((f) => [f.name, f.value]));
+  for (const s of Object.values(SERVICES)) assert.ok(json.fields.some((f) => f.name.includes(s.label)), s.label);
+  assert.ok(fields['🛵  Deliveroo'].includes('`15f20`') && fields['🍔  Uber Eats'].includes('`12 off`'));
+  assert.ok(fields['🍔  Uber Eats'].includes('<@111>') && fields['🚗  Uber Rides'].includes('Nobody online'));
+  assert.ok(!JSON.stringify(json).includes('━'), 'no divider lines');
+  assert.deepEqual(ids([components[1]]), ['order:myorders', 'order:addresses']);
   const menu = components[0].toJSON().components[0];
   assert.equal(menu.custom_id, 'order:service');
   assert.deepEqual(menu.options.map((o) => o.value), ['uberride', 'ubereats', 'deliveroo', 'justeat', 'ubertrain']);
-  assert.ok(text.includes('`5 off` (💷 **£1.00**) • `10 off` (💷 **£2.50**)'), 'per-promo fees for trains');
-  assert.ok(embeds[0].toJSON().description.length <= 4096);
+  assert.ok(fields['🚆  Uber Trains'].includes('£1.00–£2.50'), 'per-promo fees for trains');
+  assert.ok(JSON.stringify(json).length <= 6000);
 });
 
 test('order flow components', () => {
   const promo = views.promoPicker('ubereats', promos.ubereats).components[0].toJSON().components[0];
   assert.deepEqual(promo.options.map((o) => o.label), ['10 off', '12 off']);
-  const trains = views.promoPicker('ubertrain', promos.ubertrain).embeds[0].toJSON().description;
+  const trains = JSON.stringify(views.promoPicker('ubertrain', promos.ubertrain).embeds[0].toJSON());
   assert.ok(trains.includes('£1.00–£2.50'));
   assert.deepEqual(views.detailsModal('ubertrain', '0', 'no').toJSON().components.map((r) => r.components[0].custom_id), ['from', 'to', 'when', 'notes', 'code']);
   assert.deepEqual(ids(views.vcPicker('deliveroo', '0').components), ['order:vc:deliveroo:0:yes', 'order:vc:deliveroo:0:no']);
@@ -58,16 +62,16 @@ test('staff and ticket buttons follow status', () => {
   assert.equal(views.askQuestionModal(483920).toJSON().custom_id, 'order:askq:483920');
   const accepted = { ...order, status: 'accepted', ordererId: '2', ticketChannelId: 'c' };
   assert.deepEqual(ids(views.staffButtons(accepted, 'g')), ['https://discord.com/channels/g/c']);
-  assert.deepEqual(ids(views.ticketButtons(accepted)), ['order:complete:483920', 'order:forfeit:483920', 'order:cancel:483920', 'order:close:483920', 'order:delete:483920']);
-  assert.deepEqual(ids(views.ticketButtons({ ...accepted, status: 'pending', ordererId: null })), ['order:cancel:483920', 'order:delete:483920'], 'forfeited ticket waits for a new orderer');
+  assert.deepEqual(ids(views.ticketButtons(accepted)), ['order:complete:483920', 'order:forfeit:483920', 'order:cancel:483920', 'order:copyaddr:483920', 'order:close:483920', 'order:delete:483920']);
+  assert.deepEqual(ids(views.ticketButtons({ ...accepted, status: 'pending', ordererId: null })), ['order:copyaddr:483920', 'order:cancel:483920', 'order:delete:483920'], 'forfeited ticket waits for a new orderer');
   const completed = { ...accepted, status: 'completed', closeAt: new Date().toISOString() };
-  assert.deepEqual(ids(views.ticketButtons(completed)), ['order:keepopen:483920', 'order:close:483920', 'order:delete:483920']);
-  assert.deepEqual(ids(views.ticketButtons({ ...completed, closeAt: null })), ['order:close:483920', 'order:delete:483920'], 'kept open');
+  assert.deepEqual(ids(views.ticketButtons(completed)), ['order:keepopen:483920', 'order:copyaddr:483920', 'order:close:483920', 'order:delete:483920']);
+  assert.deepEqual(ids(views.ticketButtons({ ...completed, closeAt: null })), ['order:copyaddr:483920', 'order:close:483920', 'order:delete:483920'], 'kept open');
   const closed = { ...completed, status: 'closed', closeAt: null };
-  assert.deepEqual(ids(views.ticketButtons(closed)), ['order:delete:483920']);
+  assert.deepEqual(ids(views.ticketButtons(closed)), ['order:copyaddr:483920', 'order:delete:483920']);
   assert.deepEqual(views.staffButtons({ ...closed, ticketChannelId: null }, 'g'), [], 'no link once the ticket is deleted');
   const fields = views.orderEmbed(completed).toJSON().fields.map((f) => f.name);
-  assert.ok(fields.some((f) => f.includes('VC')) && fields.some((f) => f.includes('auto-deletes')) && fields.some((f) => f.includes('Staff')));
+  assert.ok(fields.some((f) => f.includes('VC')) && fields.some((f) => f.includes('auto-deletes')) && fields.some((f) => f.includes('Orderer')));
   const withAddress = views.orderEmbed({ ...order, details: { address: '1 High St', notes: '' } }).toJSON().fields;
   assert.equal(withAddress.find((f) => f.name.includes('Delivery address')).value, '1 High St');
   assert.ok(!withAddress.some((f) => f.name.includes('Notes')), 'empty notes are hidden');
@@ -126,8 +130,8 @@ test('tos panel contains every section and fits Discord limits', async () => {
 
 test('completed, vouch and announcement views', () => {
   const done = { ...order, status: 'completed', ordererId: '2' };
-  const text = views.completedEmbed(done).toJSON().description;
-  assert.ok(text.includes('Another order completed successfully') && text.includes('<@1>') && text.includes('<@2>') && text.includes('Deliveroo'));
+  const text = JSON.stringify(views.completedEmbed(done).toJSON());
+  assert.ok(text.includes('Order completed') && text.includes('<@1>') && text.includes('<@2>') && text.includes('Deliveroo'));
   const sticky = views.vouchSticky();
   assert.equal(sticky.components[0].toJSON().components[0].custom_id, 'vouch:start');
   assert.equal(views.starPicker(483920).toJSON().options.length, 5);
@@ -153,15 +157,15 @@ test('why food hub panel and embeds', async () => {
 test('order panel shows fees and who is online', async () => {
   const { money } = await import('../src/services.js');
   assert.equal(money(1.5), '£1.50');
-  const text = views.ordersPanel(promos, { ubereats: ['111', '222'] }).embeds[0].toJSON().description;
+  const text = JSON.stringify(views.ordersPanel(promos, { ubereats: ['111', '222', '333', '444'] }).embeds[0].toJSON());
   assert.ok(text.includes('£1.50') && text.includes('£2.50') && text.includes('£2.00'));
-  assert.ok(text.includes('🟢 **Online:** <@111>, <@222>'));
-  assert.ok(text.includes('No orderers online'));
+  assert.ok(text.includes('🟢 <@111> <@222> <@333> +1'), 'first three online, then a count');
+  assert.ok(text.includes('Nobody online'));
   const options = views.ordersPanel(promos, { ubereats: ['111'] }).components[0].toJSON().components[0].options;
-  assert.ok(options.find((o) => o.value === 'ubereats').description.startsWith('Fee £2.50 · 🟢 1 online'));
+  assert.ok(options.find((o) => o.value === 'ubereats').description.startsWith('£2.50 fee · 1 online'));
   assert.ok(options.every((o) => o.description.length <= 100));
-  const picker = views.promoPicker('justeat', promos.justeat, []).embeds[0].toJSON().description;
-  assert.ok(picker.includes('£2.00') && picker.includes('Nobody is online'));
+  const picker = JSON.stringify(views.promoPicker('justeat', promos.justeat, []).embeds[0].toJSON());
+  assert.ok(picker.includes('£2.00') && picker.includes('Nobody right now'));
 });
 
 test('staff panel, payment details and payment panel', async () => {

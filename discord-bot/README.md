@@ -14,7 +14,10 @@ support tickets, a verify panel and moderation commands.
 3. They answer **VC?** Yes / No.
 4. A form pops up for the address: **delivery address** for Uber Eats / Deliveroo / Just Eat, **pickup + drop-off**
    for Uber Rides, from/to stations and date for Uber Trains, plus optional notes and an optional
-   **discount / referral code** (see Referrals). A valid code lowers the service fee shown everywhere.
+   **discount / reward code** (referral, loyalty or `/award` codes). A valid code lowers the service fee shown
+   everywhere. Members with **saved addresses** pick one from a menu first and the form comes pre-filled; after
+   typing a new address they get a **📍 Save this address** button. **📍 My addresses** on the order panel lists,
+   adds and removes them (up to 5). **📦 My orders** shows their recent orders.
 5. The bot DMs them asking for their **order screenshot** (15 minutes to send it) and gives them a random
    6-digit **order number**, e.g. `#483920`.
 6. The order appears in the **staff orders channel** with the screenshot, pinging the orderer role **and** the
@@ -30,7 +33,9 @@ support tickets, a verify panel and moderation commands.
    DMs the customer, gives back any discount code, and deletes the ticket 10 seconds later.
 9. Closing **locks** the ticket (`🔒-order-483920`): the customer loses access, staff keep it.
    **Delete ticket** (staff only) removes the channel; it's available on every ticket at any stage.
-10. Instead of scrolling up to the buttons, staff can type `/complete`, `/close`, `/delete` or `/rename name:` in any
+10. **📋 Copy address** on the ticket panel sends the address as plain text (only you see it), easy to copy on mobile.
+11. An hour after an order is completed the customer gets one DM asking for a vouch, unless they've already vouched.
+12. Instead of scrolling up to the buttons, staff can type `/complete`, `/close`, `/delete` or `/rename name:` in any
     order or support ticket.
 
 The customer gets DMs along the way. Auto-delete times are saved, so tickets are still deleted on schedule if the bot
@@ -74,6 +79,19 @@ becomes valid again and the owner is DMed it.
 
 Needs **Server Members Intent** on (Developer Portal → Bot) and the bot's **Manage Server** permission (to read
 invite counts) and **Create Invite** in the panel's channel.
+
+## Loyalty & awards
+`/loyaltypanel` explains the loyalty reward: **10 completed orders within 3 weeks = a free-fee order**
+(`LOYALTY_ORDERS`, `LOYALTY_DAYS`). **🍔 Check loyalty** shows their progress as 🍔/⚪ and when the oldest counted order
+drops off. The code is DMed automatically when the 10th order is completed; those orders then stop counting.
+
+`/award user: [reason:]` (admins) creates a free-fee code for a member and DMs it to them.
+
+## Daily stats
+Just after midnight (`TIMEZONE`) the bot posts the day's stats in `STATS_CHANNEL_ID` (default: the staff orders
+channel) and pings the orderer role: orders submitted, completed and cancelled, fees, most orders, fastest orderer
+(average time from accept to complete) and a leaderboard. **📈 Get my personal stats** shows each orderer their own
+numbers privately. `/stats` shows today so far.
 
 ## Bot suggestions
 `/suggestionpanel [channel:]` turns a channel into the suggestions list: a numbered, formatted list with a panel
@@ -121,7 +139,8 @@ customer presses **✅ I've paid**, the orderer is pinged and presses **💰 Con
 old staff post is replaced by a fresh one that re-pings, and whoever accepts next joins the same ticket.
 
 Every message the bot sends is an embed panel (pings are sent alongside the embed), all in one colour:
-`BRAND_COLOR` in `.env` (a hex code like `#ff7a00`, default Discord blurple).
+`BRAND_COLOR` in `.env` (a hex code, default Food Hub orange `#F26522`). The big panels show your server's name and
+icon at the top. Re-run a panel's command after updating to get the new look.
 
 ## Food Hub AI
 Set `ANTHROPIC_API_KEY` (from console.anthropic.com) and restart. There are two personalities:
@@ -196,6 +215,9 @@ verify panel with a button to your verify link.
 | `/applypanel [channel:]` | Manage Server | Post the orderer / partner applications panel |
 | `/complete` `/close` `/delete` | Staff (checked by the bot) | Same as the ticket buttons, in the current ticket |
 | `/rename name:` | Staff | Rename the current ticket channel |
+| `/loyaltypanel [channel:]` | Manage Server | Post the loyalty panel |
+| `/award user: [reason:]` | Manage Server | DM a member a free-fee order code |
+| `/stats` | Staff | Today's order stats so far |
 | `/paypal` `/rev` `/starling` `/wise` `/crypto` `amount:` | Orderer role | Post a payment-due panel with your saved details |
 | `/whyfoodhub [channel:]` | Manage Server | Post the Why Food Hub panel (2 buttons, text in `src/whyfoodhub.js`) |
 | `/announce [channel:] [ping:]` | Manage Server | Post an announcement panel |

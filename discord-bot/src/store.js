@@ -7,6 +7,7 @@ const OPEN = new Set(['pending', 'accepted']);
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O or 1/I to mix up
 export const REFERRAL_INVITES = 3;
 export const REFERRAL_ORDERS = 2;
+const MAX_ADDRESSES = 5;
 const now = () => new Date().toISOString();
 
 // Random 6-digit number not already used as a key in `taken`.
@@ -26,6 +27,7 @@ export class Store {
     this.data = {
       orders: {}, support: {}, vouches: [], payments: {}, staff: {}, questions: {}, giveaways: {}, codes: {}, suggestions: [], applications: {},
       referrals: { links: {}, joins: {}, rewarded: [], discountClaimed: [] },
+      addresses: {},
       meta: {},
     };
     this.onCodeReleased = null; // called with a code that's usable again after its order was cancelled
@@ -111,7 +113,7 @@ export class Store {
 
   accept(id, ordererId) {
     if (this.getOrder(id)?.customerId === ordererId) return { error: 'You can\'t accept your own order.' };
-    return this.#transition(id, ['pending'], { status: 'accepted', ordererId });
+    return this.#transition(id, ['pending'], { status: 'accepted', ordererId, acceptedAt: now() });
   }
 
   // The accepting orderer hands the order back; it goes back to the queue but
@@ -496,6 +498,88 @@ export class Store {
     if (this.hasCompletedOrder(userId)) return { error: 'ordered' };
     this.data.referrals.discountClaimed.push(userId);
     return { code: this.createCode({ type: 'discount', amount, ownerId: userId, reason: `Invited by ${referrerId}` }) };
+  }
+
+  // --- saved addresses ---
+
+  addressesOf(userId) {
+    return this.data.addresses[userId] ?? [];
+  }
+
+  // Newest first, no duplicates, at most MAX_ADDRESSES.
+  saveAddress(userId, text) {
+    const clean = text.trim();
+    const list = this.addressesOf(userId).filter((a) => a.toLowerCase() !== clean.toLowerCase());
+    this.data.addresses[userId] = [clean, ...list].slice(0, MAX_ADDRESSES);
+    this.save();
+    return this.data.addresses[userId];
+  }
+
+  removeAddress(userId, index) {
+    this.data.addresses[userId] = this.addressesOf(userId).filter((_, i) => i !== index);
+    this.save();
+    return this.data.addresses[userId];
+  }
+
+  // --- vouch reminders ---
+
+  // Completed 1-24 hours ago, not vouched for, not reminded yet. The 24h cap stops
+  // old orders from before this feature all being reminded at once.
+  vouchRemindersDue(at = Date.now(), afterMs = 60 * 60 * 1000) {
+    return Object.values(this.data.orders).filter((o) => {
+      if (!o.completedAt || o.vouch || o.vouchReminded || o.status === 'cancelled') return false;
+      const age = at - Date.parse(o.completedAt);
+      return age >= afterMs && age < 24 * 60 * 60 * 1000;
+    });
+  }
+
+  // --- loyalty: LOYALTY_ORDERS completed orders within LOYALTY_DAYS = one free-fee code ---
+
+  // Completed orders inside the window that haven't been used for a reward, oldest first.
+  loyaltyOrders(userId, days, at = Date.now()) {
+    const since = at - days * 24 * 60 * 60 * 1000;
+    return Object.values(this.data.orders)
+      .filter((o) => o.customerId === userId && o.completedAt && !o.loyaltyUsed && Date.parse(o.completedAt) > since)
+      .sort((a, b) => a.completedAt.localeCompare(b.completedAt));
+  }
+
+  // Gives a code if they've reached the target; the orders used are marked so they don't count again.
+  claimLoyalty(userId, { orders, days }, at = Date.now()) {
+    const counted = this.loyaltyOrders(userId, days, at);
+    if (counted.length < orders) return null;
+    for (const o of counted.slice(0, orders)) o.loyaltyUsed = true;
+    return this.createCode({ type: 'free', ownerId: userId, reason: `Loyalty: ${counted.slice(0, orders).map((o) => `#${o.id}`).join(', ')}` });
+  }
+
+  // --- daily stats ---
+
+  // Numbers for one day. `dateOf(iso)` gives the local YYYY-MM-DD of a timestamp.
+  dailyStats(date, dateOf) {
+    const on = (iso) => Boolean(iso) && dateOf(iso) === date;
+    const orders = Object.values(this.data.orders);
+    const completed = orders.filter((o) => on(o.completedAt));
+    const byOrderer = {};
+    for (const o of completed) {
+      const s = (byOrderer[o.ordererId] ??= { completed: 0, minutes: [], fees: 0, orders: [] });
+      s.completed += 1;
+      s.fees += o.fee ?? 0;
+      s.orders.push(o.id);
+      if (o.acceptedAt) s.minutes.push((Date.parse(o.completedAt) - Date.parse(o.acceptedAt)) / 60000);
+    }
+    for (const s of Object.values(byOrderer)) s.avgMinutes = s.minutes.length ? s.minutes.reduce((a, b) => a + b, 0) / s.minutes.length : null;
+    const ranked = Object.entries(byOrderer);
+    const most = [...ranked].sort(([, a], [, b]) => b.completed - a.completed)[0] ?? null;
+    const fastest = ranked.filter(([, s]) => s.avgMinutes !== null).sort(([, a], [, b]) => a.avgMinutes - b.avgMinutes)[0] ?? null;
+    return {
+      date,
+      submitted: orders.filter((o) => on(o.createdAt)).length,
+      completed: completed.length,
+      cancelled: orders.filter((o) => o.status === 'cancelled' && on(o.updatedAt)).length,
+      fees: completed.reduce((sum, o) => sum + (o.fee ?? 0), 0),
+      byOrderer,
+      most: most && { userId: most[0], ...most[1] },
+      fastest: fastest && { userId: fastest[0], ...fastest[1] },
+    };
   }
 
   // --- bot suggestions ---

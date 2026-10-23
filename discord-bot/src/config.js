@@ -51,6 +51,8 @@ export function loadConfig(required) {
     // AUTO_CLOSE_HOURS is the old name, from when completed tickets were locked instead of deleted.
     autoDeleteHours: Number(process.env.AUTO_DELETE_HOURS || process.env.AUTO_CLOSE_HOURS) || 2,
     maxOpenOrders: Number(process.env.MAX_OPEN_ORDERS) || 2,
+    loyalty: { orders: Number(process.env.LOYALTY_ORDERS) || 10, days: Number(process.env.LOYALTY_DAYS) || 21 },
+    statsChannelId: process.env.STATS_CHANNEL_ID || process.env.STAFF_ORDERS_CHANNEL_ID,
     dataFile: `${dataDir}/store.json`,
     screenshotDir: `${dataDir}/screenshots`,
     transcriptDir: `${dataDir}/transcripts`,

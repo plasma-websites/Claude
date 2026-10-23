@@ -3,7 +3,6 @@ import { createAiHandlers } from './ai.js';
 import { loadConfig, loadPromos } from './config.js';
 import { moderationCommands } from './moderation.js';
 import { createOrderHandlers } from './orders.js';
-import { SERVICES, STATUS } from './services.js';
 import { Store } from './store.js';
 import { PAYMENT_COMMANDS, createStaffHandlers } from './staff.js';
 import { createSupportHandlers } from './support.js';
@@ -17,6 +16,8 @@ import { createApplications } from './applications.js';
 import { createReferrals } from './referrals.js';
 import { createSuggestions } from './suggestions.js';
 import { createTrials } from './trials.js';
+import { createLoyalty } from './loyalty.js';
+import { createStats } from './stats.js';
 import {
   announceModal,
   announcementEmbed,
@@ -25,7 +26,9 @@ import {
   staffButtons,
   staffPanel,
   applyPanel,
+  loyaltyPanel,
   referralPanel,
+  setBrand,
   supportPanel,
   tosPanel,
   transcriptPanel,
@@ -75,6 +78,7 @@ const ctx = { client, config, store, promos };
 ctx.ai = createAiHandlers(ctx);
 ctx.transcripts = createTranscripts(ctx);
 ctx.trials = createTrials(ctx);
+ctx.loyalty = createLoyalty(ctx);
 const orders = createOrderHandlers(ctx);
 const support = createSupportHandlers(ctx);
 const staff = createStaffHandlers(ctx);
@@ -83,6 +87,7 @@ const giveaways = createGiveawayHandlers(ctx);
 const referrals = createReferrals(ctx);
 const suggestions = createSuggestions(ctx);
 const applications = createApplications(ctx);
+const stats = createStats(ctx);
 
 async function handleCommand(interaction) {
   const name = interaction.commandName;
@@ -99,7 +104,8 @@ async function handleCommand(interaction) {
     case 'transcriptpanel':
     case 'trialpanel':
     case 'referralpanel':
-    case 'applypanel': {
+    case 'applypanel':
+    case 'loyaltypanel': {
       if (name === 'verifypanel' && !config.verifyUrl) {
         return interaction.reply(ephemeral('Set `VERIFY_URL` in `.env` to your RestoreCord / VaultCord verify link first, then restart the bot.'));
       }
@@ -115,6 +121,7 @@ async function handleCommand(interaction) {
         trialpanel: ctx.trials.view,
         referralpanel: referralPanel,
         applypanel: applyPanel,
+        loyaltypanel: () => loyaltyPanel(config.loyalty),
       }[name]();
       try {
         const message = await channel.send(panel);
@@ -133,6 +140,12 @@ async function handleCommand(interaction) {
 
     case 'giveaway':
       return giveaways.start(interaction);
+
+    case 'award':
+      return referrals.award(interaction);
+
+    case 'stats':
+      return stats.today(interaction);
 
     case 'suggestionpanel': {
       const channel = interaction.options.getChannel('channel') ?? interaction.channel;
@@ -161,16 +174,8 @@ async function handleCommand(interaction) {
       return interaction.showModal(announceModal(channel.id, interaction.options.getString('ping') ?? 'none'));
     }
 
-    case 'myorders': {
-      const list = store.recentOrdersFor(interaction.user.id);
-      if (!list.length) return interaction.reply(ephemeral('📭 You have no orders yet.'));
-      const lines = list.map((o) => {
-        const s = STATUS[o.status];
-        const ticket = o.ticketChannelId && ['accepted', 'completed'].includes(o.status) ? ` — <#${o.ticketChannelId}>` : '';
-        return `**#${o.id}** ${SERVICES[o.service].emoji} ${SERVICES[o.service].label}: ${s.emoji} ${s.label}${ticket}`;
-      });
-      return interaction.reply(ephemeral(`📦 **Your recent orders**\n${lines.join('\n')}`));
-    }
+    case 'myorders':
+      return orders.myOrders(interaction);
 
     case 'cancel': {
       const result = store.cancel(interaction.options.getInteger('id', true), interaction.user.id);
@@ -245,6 +250,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
     if (interaction.customId.startsWith('ref:')) return await referrals.handleComponent(interaction);
     if (interaction.customId.startsWith('suggest:')) return await suggestions.handleComponent(interaction);
     if (interaction.customId.startsWith('apply:')) return await applications.handleComponent(interaction);
+    if (interaction.customId.startsWith('loyalty:')) return await ctx.loyalty.handleComponent(interaction);
+    if (interaction.customId.startsWith('stats:')) return await stats.handleComponent(interaction);
     if (interaction.customId === 'why:hub') return await interaction.reply({ embeds: [whyFoodHubEmbed(WHY_FOOD_HUB)], flags: MessageFlags.Ephemeral });
     if (interaction.customId === 'why:foodplug') {
       return await interaction.reply({ embeds: [whyOverFoodplugEmbed(WHY_OVER_FOODPLUG)], flags: MessageFlags.Ephemeral });
@@ -286,6 +293,7 @@ client.once(Events.ClientReady, async (c) => {
   console.log(`Logged in as ${c.user.tag}`);
   try {
     const guild = await c.guilds.fetch(config.guildId);
+    setBrand(guild.name, guild.iconURL({ size: 128 }));
     // Shows which roles the IDs in .env point at, to catch a wrong ID (e.g. pinging the wrong role).
     for (const [label, id] of [['ORDERER_ROLE_ID', config.ordererRoleId], ['TRIAL_ORDERER_ROLE_ID', config.trialRoleId], ['SUPPORT_ROLE_ID', config.supportRoleId]]) {
       if (id) console.log(`${label} → @${(await guild.roles.fetch(id).catch(() => null))?.name ?? '⚠️ no role with this ID'}`);
@@ -309,6 +317,9 @@ client.once(Events.ClientReady, async (c) => {
   const staffTick = () => staff.tick().catch((err) => console.error('Staff online check failed:', err));
   staffTick();
   setInterval(staffTick, 30 * 1000);
+  const statsTick = () => stats.tick().catch((err) => console.error('Daily stats failed:', err));
+  statsTick();
+  setInterval(statsTick, 30 * 1000);
 });
 
 client.login(config.token);
